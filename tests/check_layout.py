@@ -35,7 +35,7 @@ CHECK_JS = """
   // The eye caught this on 2026-09-19 where the overflow check could not; assert it geometrically.
   let spilled = 0, spilledIn = null;
   for (const cap of document.querySelectorAll('figcaption')) {
-    const li = cap.closest('li') || cap.closest('article');
+    const li = cap.closest('li') || cap.closest('article') || cap.closest('figure');
     if (!li) continue;
     const c = cap.getBoundingClientRect(), b = li.getBoundingClientRect();
     if (c.bottom > b.bottom + 1 || c.right > b.right + 1 || c.left < b.left - 1) { spilled++; spilledIn = spilledIn || li.className; }
@@ -48,6 +48,11 @@ CHECK_JS = """
 
 def main(site, build):
     pages = ["index.html"] + sorted("p/" + f for f in os.listdir(os.path.join(site, "p")) if f.endswith(".html"))
+    # 0.3.0: the comparison index and one page per round, when the build emitted them.
+    if os.path.isfile(os.path.join(site, "comparisons.html")):
+        pages.append("comparisons.html")
+    if os.path.isdir(os.path.join(site, "c")):
+        pages += sorted("c/" + f for f in os.listdir(os.path.join(site, "c")) if f.endswith(".html"))
     shots = os.path.join(build, "shots")
     os.makedirs(shots, exist_ok=True)
     failures, checks = [], 0
