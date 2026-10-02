@@ -17,7 +17,7 @@ This repo holds the static-site generator, not the corpus.
   Works accepted from 2026-09-26 carry their own recorded model credits instead.
 - `tests/Invoke-Gates.ps1` is the acceptance gate: leak control against planted canaries, image-metadata
   stripping, byte-stable output, layout at six viewports and two font scales, encoding checks, and the
-  blind-comparison gate (14).
+  blind-comparison and tally gate (14) and the open-round hold-out gate (15).
 - `tools/` holds the WebP encoder and the comparison-round tools (see below).
 
 The generator reads only accepted-work records and the two files each one names. Drafts, critiques, candidate
@@ -59,7 +59,9 @@ Only works accepted with a recorded image brief (`image_prompt`, from 2026-09-16
    `chatgpt_model`, `generated_on`, `round_id` and `round_closes` (dates only). The ingest refuses, and
    writes nothing, if any inbox file would be left without a record. `-CheckOnly` runs just that check.
 4. **Optional round record** `<corpus>\comparisons\rounds\<round_id>.json`: `{"round_id": "r1",
-   "vote_url": "https://..."}`. With no record, or an empty `vote_url`, the page says "Voting opens soon".
+   "vote_url": "https://...", "tally_csv_url": "https://docs.google.com/spreadsheets/d/e/.../pub?gid=...&single=true&output=csv"}`.
+   With no record, or an empty `vote_url`, the page says "Voting opens soon". `tally_csv_url` is optional;
+   the build refuses any value that is not a `https://docs.google.com/spreadsheets/...` URL.
 5. **Build.** `-Today yyyy-MM-dd` decides open or closed (default: today, UTC). A round is open through
    its `round_closes` date and reveals from the next day.
 
@@ -79,6 +81,34 @@ How the blind holds while a round is open:
 
 Gate 14 in `tests\Invoke-Gates.ps1` checks all of this against a fixture with a planted C2PA/EXIF/XMP
 image, a model-name label and a stray inbox file, and proves each detector fires on the source first.
+
+### Hold-out while a round is open (0.4.0)
+
+A work that is the local half of a pair in an open round leaves the whole public site until the round
+closes: the gallery grid, the latest-work hero (which falls back to the newest work not held), its own
+`p/<base>.html` page, the previous/next links on its neighbours, the Evolution chart and the stats, and
+its `img/<base>*.webp` files. The round page still shows its poem and brief, because the vote needs
+them, but never its base name or a link to its page. Pair images are encoded at quality 80 (the gallery
+uses 82), so the local half is never byte-identical to the work's gallery image. When the round closes,
+the work returns everywhere. Gate 15 proves this, with positive controls on the closed build.
+
+### Vote tallies (0.4.0)
+
+Votes come from a company-owned Google Form that collects no email. The form's linked Sheet gets a
+`Totals` tab with one row per pair, columns `pair_id,a_votes,b_votes` (COUNTIF formulas; `pair_id` is the
+comparison record's `pair_id`, and A/B mean the served Image A/Image B). Publish that tab alone with
+File > Share > Publish to web > CSV, and put the URL in the round record as `tally_csv_url`.
+
+- An **open** round's page carries no tally URL, no script and no CSP. Gate 14 asserts this.
+- A **closed** round's page fetches the CSV in the browser and shows the counts. Google answers with a
+  307 from `docs.google.com` to `doc-NN-xx-sheets.googleusercontent.com`. Both hops send
+  `Access-Control-Allow-Origin`, so a live browser fetch works with no rebuild (checked 2026-10-02).
+  `tests\probe_live_tally.py` re-checks it against any published CSV.
+- The page's CSP allows one script, pinned by its sha256, and `connect-src` to `docs.google.com` and
+  `*.googleusercontent.com` only. Counts are written as text, never as HTML.
+- Every failure (network, non-2xx, 10-second timeout, CSP block) shows "Results unavailable."; a pair
+  missing from the CSV shows "No votes recorded.". The boxes have fixed size, so loading causes no
+  layout shift. `tests\check_tally.py` (run by Gate 14) proves each of these in Edge.
 
 ChatGPT images are not covered by this site's CC0 dedication. Before any round is published, the
 company needs a written assignment of the images and a CC0 carve-out, and Legal must confirm OpenAI's

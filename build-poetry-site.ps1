@@ -36,6 +36,12 @@
   While a round is open (Today <= round_closes) its page carries no model name, label, alt text or
   script that says which image is which. After it closes, the page reveals.
 
+  0.4.0 (founder 2026-10-02). HOLD-OUT: a work that is the local half of a pair in an OPEN round is
+  removed from the whole public site for the round (gallery, hero, its page, neighbours' prev/next,
+  Evolution, stats, img/), and returns at close. TALLY: a round record may carry `tally_csv_url`
+  (https://docs.google.com/spreadsheets/... published CSV of the vote form's Totals tab). Only a CLOSED
+  round's page carries it, with one hash-pinned inline script under a CSP limiting connect-src to Google.
+
 .OUTPUTS
   Exit 0 on success. Exit 1 on any record that names a missing pair, a duplicate base_name,
   or an encoder failure -- the build fails closed rather than publishing a partial set.
@@ -54,7 +60,7 @@ if ([string]::IsNullOrWhiteSpace($Source)) { Write-Host 'ERROR -Source not given
 if ($Today -notmatch '^\d{4}-\d{2}-\d{2}$') { Write-Host "ERROR -Today must be yyyy-MM-dd, got '$Today'"; exit 1 }
 $ErrorActionPreference = 'Stop'
 
-$Script:Version   = '0.3.0'
+$Script:Version   = '0.4.0'
 $Script:SiteTitle = 'C01 Poetry & Illustration'
 $Script:Entity    = 'c0rw1n innovative inc'
 $Script:HomeUrl   = 'https://c0rw1n.com/'
@@ -221,7 +227,7 @@ if (Test-Path -LiteralPath $cmpDir -PathType Container) {
         $ph = ([System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($Script:Utf8.GetBytes("c01poetry-cmp|$pairId|$sha")))).ToLowerInvariant().Substring(0, 16)
         $ob = [System.Security.Cryptography.SHA256]::HashData($Script:Utf8.GetBytes("$ph|order"))
         $localIsA = (($ob[0] -band 1) -eq 0)
-        if (-not $rounds.ContainsKey($rid)) { $rounds[$rid] = @{ id = $rid; closes = $c['round_closes']; vote_url = ''; open = $true; pairs = [System.Collections.Generic.List[hashtable]]::new() } }
+        if (-not $rounds.ContainsKey($rid)) { $rounds[$rid] = @{ id = $rid; closes = $c['round_closes']; vote_url = ''; tally_url = ''; open = $true; pairs = [System.Collections.Generic.List[hashtable]]::new() } }
         elseif ($rounds[$rid].closes -ne $c['round_closes']) { Fail "round '$rid' has two round_closes dates ($($rounds[$rid].closes), and $($c['round_closes']) in $($f.Name))" }
         $pr = @{ pair_id = $pairId; hash = $ph; local_is_a = $localIsA; work = $w; img = $imgPath; ext = [System.IO.Path]::GetExtension($img).ToLowerInvariant()
                  model = $c['chatgpt_model']; generated_on = $c['generated_on']; round = $rid }
@@ -237,13 +243,26 @@ if (Test-Path -LiteralPath $cmpDir -PathType Container) {
             $vu = if ($rr.ContainsKey('vote_url') -and $rr['vote_url'] -is [string]) { $rr['vote_url'].Trim() } else { '' }
             if ($vu -and $vu -notmatch '^https://[^\s"<>]+$') { Fail "round $rid vote_url must be an https URL or empty" }
             $rounds[$rid].vote_url = $vu
+            # 0.4.0: published-CSV tally of the vote form's "Totals" tab. Read only by a CLOSED round's page.
+            $tu = if ($rr.ContainsKey('tally_csv_url') -and $rr['tally_csv_url'] -is [string]) { $rr['tally_csv_url'].Trim() } else { '' }
+            if ($rr.ContainsKey('tally_csv_url') -and $rr['tally_csv_url'] -isnot [string]) { Fail "round $rid tally_csv_url must be a string" }
+            if ($tu -and $tu -cnotmatch '^https://docs\.google\.com/spreadsheets/[A-Za-z0-9_\-/.?=&%]+$') { Fail "round $rid tally_csv_url must be a https://docs.google.com/spreadsheets/... published-CSV URL" }
+            $rounds[$rid].tally_url = $tu
         }
         # Closes at the end of round_closes: open on that date, revealed from the next day.
         $rounds[$rid].open = ([string]::CompareOrdinal($Today, $rounds[$rid].closes) -le 0)
         $rounds[$rid].pairs.Sort([System.Comparison[hashtable]] { param($x, $y) [string]::CompareOrdinal($x.hash, $y.hash) })
-        Log "ROUND  $rid closes=$($rounds[$rid].closes) state=$(if ($rounds[$rid].open) { 'open' } else { 'closed' }) pairs=$($rounds[$rid].pairs.Count) vote_url=$(if ($rounds[$rid].vote_url) { 'set' } else { 'empty' })"
+        Log "ROUND  $rid closes=$($rounds[$rid].closes) state=$(if ($rounds[$rid].open) { 'open' } else { 'closed' }) pairs=$($rounds[$rid].pairs.Count) vote_url=$(if ($rounds[$rid].vote_url) { 'set' } else { 'empty' }) tally_csv_url=$(if ($rounds[$rid].tally_url) { 'set' } else { 'empty' })"
     }
 }
+# 0.4.0 HOLD-OUT (founder 2026-10-02): the local half of a pair in an OPEN round leaves the whole public
+# site for the round -- gallery, hero, its own page, neighbours' prev/next, Evolution, stats, img/. It is
+# still shown on its round page (unattributed, as the blind requires) and returns everywhere at close.
+$held = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+foreach ($pr in $pairs) { if ($rounds[$pr.round].open) { [void]$held.Add($pr.work.base_name) } }
+$allOrdered = $ordered
+$ordered = @($allOrdered | Where-Object { -not $held.Contains($_.base_name) })
+foreach ($w in $allOrdered) { if ($held.Contains($w.base_name)) { Log "HOLD   base_name=$($w.base_name) reason=open-round" } else { Log "PUBLISH base_name=$($w.base_name)" } }
 $roundKeys = [System.Collections.Generic.List[string]]::new(); foreach ($k in $rounds.Keys) { $roundKeys.Add($k) }
 $roundKeys.Sort([System.StringComparer]::Ordinal); $roundKeys.Reverse()
 
@@ -277,10 +296,14 @@ if ($jobs.Count -gt 0) {
 }
 
 # 4b. Comparison pairs: both images through ONE identical pipeline (encode_webp.py pair).
+#     Quality 80, not the gallery's 82, for BOTH sides: at 82 the local side came out byte-identical to
+#     the work's gallery img/<base>.webp, so a hash match against a previously published gallery image
+#     would name the local half while the round is open (Gate 15 caught this, 2026-10-02).
+$Script:PairQuality = 80
 $cmpDims = @{}
 if ($pairs.Count -gt 0) {
     $pjobs = @(foreach ($pr in $pairs) {
-        @{ pair = $pr.hash; local = $pr.work.png; remote = $pr.img; out_a = (Join-Path $Out "cmp\$($pr.hash)-a.webp"); out_b = (Join-Path $Out "cmp\$($pr.hash)-b.webp"); local_is_a = $pr.local_is_a; max_side = 1024; quality = 82 }
+        @{ pair = $pr.hash; local = $pr.work.png; remote = $pr.img; out_a = (Join-Path $Out "cmp\$($pr.hash)-a.webp"); out_b = (Join-Path $Out "cmp\$($pr.hash)-b.webp"); local_is_a = $pr.local_is_a; max_side = 1024; quality = $Script:PairQuality }
     })
     $pjobFile = Join-Path $BuildDir 'pair-jobs.json'
     Write-Text $pjobFile (ConvertTo-Json -InputObject $pjobs -Depth 4)
@@ -351,7 +374,7 @@ function Resolve-Credits($w) {
     else     { $c.judge = @{ model = (Pretty (Era-At 'judge_model' $w.accepted_at)); src = 'reconstructed' } }
     return $c
 }
-foreach ($w in $ordered) { $w.credits = Resolve-Credits $w }
+foreach ($w in $allOrdered) { $w.credits = Resolve-Credits $w }   # held works too: a closed round's page credits its local half
 
 # ---------------------------------------------------------------------------------------------
 # 6. HTML
@@ -364,7 +387,7 @@ function Tint($w) {
     if ($w.family -and $Script:FamilyHue.ContainsKey($w.family)) { $h = $Script:FamilyHue[$w.family]; return " style=`"--f:$($h[0]);--a:$($h[1])`"" }
     return ''
 }
-function Page-Head([string]$title, [string]$root, [string]$active, [string]$desc) {
+function Page-Head([string]$title, [string]$root, [string]$active, [string]$desc, [string]$extraHead = '') {
     $nav = @(
         @('index.html', 'Gallery', 'gallery'), @('experiment.html', 'The experiment', 'experiment'), @('evolution.html', 'Evolution', 'evolution'), @('comparisons.html', 'Compare', 'compare')
     ) | ForEach-Object {
@@ -379,7 +402,7 @@ function Page-Head([string]$title, [string]$root, [string]$active, [string]$desc
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <meta name="generator" content="build-poetry-site/$Script:Version">
-<meta name="description" content="$(Esc $desc)">
+$extraHead<meta name="description" content="$(Esc $desc)">
 <title>$(Esc $title)</title>
 <link rel="stylesheet" href="${root}style.css">
 </head>
@@ -642,17 +665,37 @@ if ($roundKeys.Count -eq 0) {
 [void]$sb.Append("</main>`n").Append((Page-Foot-Neutral))
 Write-Text (Join-Path $Out 'comparisons.html') $sb.ToString()
 
+# 0.4.0 live tally. Constant text, so its CSP hash is a constant and the page stays byte-stable. Reads
+# the round's published CSV ("Totals" tab: pair_id,a_votes,b_votes) and writes counts with textContent
+# only. Every failure (network, CORS, non-2xx, timeout, unparseable) ends in "Results unavailable.".
+# Google's published-CSV endpoint answers docs.google.com with a 307 to doc-NN-xx-sheets.googleusercontent.com,
+# and both hops send Access-Control-Allow-Origin (checked 2026-10-02), so connect-src names both hosts.
+$Script:TallyJs = "(function(){var m=document.getElementById('main'),u=m&&m.getAttribute('data-csv'),rows=document.querySelectorAll('.tally[data-pair]'),done=false;if(!u||!rows.length)return;" +
+    "function st(r,t){r.querySelector('.tally-status').textContent=t;}" +
+    "function fail(){if(done)return;done=true;for(var i=0;i<rows.length;i++)st(rows[i],'Results unavailable.');}" +
+    "var ac=window.AbortController?new AbortController():null,tm=setTimeout(function(){if(ac)ac.abort();fail();},10000);" +
+    "fetch(u,{credentials:'omit',cache:'no-store',redirect:'follow',signal:ac?ac.signal:undefined}).then(function(r){if(!r.ok)throw new Error('http');return r.text();}).then(function(t){if(done)return;clearTimeout(tm);var v={};" +
+    "t.replace(/\r/g,'').split('\n').forEach(function(l){var c=l.split(',').map(function(s){return s.trim().replace(/^`"|`"$/g,'');});if(c.length>=3&&/^\d{1,7}$/.test(c[1])&&/^\d{1,7}$/.test(c[2]))v[c[0]]=[c[1],c[2]];});" +
+    "done=true;for(var i=0;i<rows.length;i++){var r=rows[i],x=v[r.getAttribute('data-pair')];if(!x){st(r,'No votes recorded.');continue;}r.querySelector('.tally-a').textContent=x[0];r.querySelector('.tally-b').textContent=x[1];st(r,'Counted from the vote form.');}" +
+    "}).catch(function(){clearTimeout(tm);fail();});})();"
+$Script:TallyHash = [System.Convert]::ToBase64String([System.Security.Cryptography.SHA256]::HashData($Script:Utf8.GetBytes($Script:TallyJs)))
+$Script:TallyCsp  = "<meta http-equiv=`"Content-Security-Policy`" content=`"script-src 'sha256-$($Script:TallyHash)'; connect-src https://docs.google.com https://*.googleusercontent.com; object-src 'none'; base-uri 'none'; form-action 'none'`">`n"
+
 foreach ($rid in $roundKeys) {
     $r = $rounds[$rid]
+    # The tally (URL, CSP, script) exists ONLY on a closed round's page. An open page carries none of it.
+    $tally = (-not $r.open) -and [bool]$r.tally_url
     $sb = [System.Text.StringBuilder]::new()
-    [void]$sb.Append((Page-Head "Round $rid - $Script:SiteTitle" '../' 'compare' 'One brief, two renderers: an unlabelled side-by-side comparison round.'))
-    [void]$sb.Append("<main id=`"main`" class=`"cmp`">`n<p class=`"eyebrow`">Compare &middot; Round $(Esc $rid)</p>`n<h1>One brief, two renderers</h1>`n<p class=`"lede`">$Script:Framing</p>`n")
+    [void]$sb.Append((Page-Head "Round $rid - $Script:SiteTitle" '../' 'compare' 'One brief, two renderers: an unlabelled side-by-side comparison round.' $(if ($tally) { $Script:TallyCsp } else { '' })))
+    $csvAttr = if ($tally) { ' data-csv="' + (Esc $r.tally_url) + '"' } else { '' }
+    [void]$sb.Append("<main id=`"main`" class=`"cmp`"$csvAttr>`n<p class=`"eyebrow`">Compare &middot; Round $(Esc $rid)</p>`n<h1>One brief, two renderers</h1>`n<p class=`"lede`">$Script:Framing</p>`n")
     if ($r.open) {
         [void]$sb.Append("<p class=`"status`">This round is open until $(Esc $r.closes). Which renderer made which image is revealed after it closes.</p>`n")
         if ($r.vote_url) { [void]$sb.Append("<p class=`"vote`"><a href=`"$(Esc $r.vote_url)`" rel=`"noopener`">Vote for the image that fits each poem better</a></p>`n") }
         else             { [void]$sb.Append("<p class=`"vote`">Voting opens soon.</p>`n") }
     } else {
         [void]$sb.Append("<p class=`"status`">This round closed on $(Esc $r.closes). The renderers are revealed below.</p>`n")
+        if ($tally) { [void]$sb.Append("<noscript><p class=`"note`">Vote counts load with JavaScript.</p></noscript>`n") }
     }
     $n = 0
     foreach ($pr in $r.pairs) {
@@ -672,11 +715,18 @@ foreach ($rid in $roundKeys) {
             }
             [void]$sb.Append("</figcaption></figure>")
         }
-        [void]$sb.Append("</div>`n<div class=`"poem`">").Append((Poem-Html $w.poem)).Append("</div>`n")
+        [void]$sb.Append("</div>`n")
+        if ($tally) {
+            # Fixed cells + a two-line status box: the script only swaps text, so nothing moves (Rule 1).
+            [void]$sb.Append("<div class=`"tally`" data-pair=`"$(Esc $pr.pair_id)`" aria-live=`"polite`"><dl><div><dt>Image A votes</dt><dd class=`"tally-a`">&ndash;</dd></div><div><dt>Image B votes</dt><dd class=`"tally-b`">&ndash;</dd></div></dl><p class=`"tally-status`">Loading results&hellip;</p></div>`n")
+        }
+        [void]$sb.Append("<div class=`"poem`">").Append((Poem-Html $w.poem)).Append("</div>`n")
         [void]$sb.Append("<div class=`"prompt`"><h3>The brief both renderers were given</h3><p>$(Esc $w.art_prompt)</p></div>`n</section>`n")
     }
     [void]$sb.Append("<p class=`"note`">Both images were re-encoded the same way for this page: same size, same format, metadata removed. The second renderer's image was centre-cropped to the shape of the local image.</p>`n")
-    [void]$sb.Append("<p><a href=`"../comparisons.html`">All rounds</a></p>`n</main>`n").Append((Page-Foot-Neutral))
+    [void]$sb.Append("<p><a href=`"../comparisons.html`">All rounds</a></p>`n</main>`n")
+    if ($tally) { [void]$sb.Append("<script>$($Script:TallyJs)</script>`n") }
+    [void]$sb.Append((Page-Foot-Neutral))
     Write-Text (Join-Path $Out "c\$rid.html") $sb.ToString()
 }
 
@@ -802,6 +852,11 @@ div.prompt h3{color:var(--fg);font-size:.8rem;letter-spacing:.08em;text-transfor
 .duo{list-style:none;display:grid;gap:clamp(1rem,2vw,1.75rem);grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr));margin-bottom:1.5rem}
 .duo .frame{border-radius:.6rem}
 .duo figcaption .t{font-family:var(--sans);font-weight:600}
+.tally{font-family:var(--sans);margin:0 0 1.5rem;padding:.75rem .9rem;border:1px solid var(--line);border-radius:.6rem;background:var(--panel)}
+.tally dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;margin:0}
+.tally dt{font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)}
+.tally dd{margin:.15rem 0 0;font:600 1.6rem/1.2 var(--serif);color:var(--gold);font-variant-numeric:tabular-nums;min-height:1.2em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tally-status{margin:.5rem 0 0;font-size:.85rem;line-height:1.45;color:var(--mute);min-height:2.9em}
 .roast pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem}
 .piece h1{font-size:clamp(1.6rem,1rem + 2vw,2.5rem)}
 h1,h2,h3,figcaption .t{text-wrap:balance}

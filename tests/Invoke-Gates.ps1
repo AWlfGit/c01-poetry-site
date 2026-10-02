@@ -233,7 +233,10 @@ Move-Item -LiteralPath "$stray.held" -Destination (Join-Path $inbox (Split-Path 
 $recs = @(foreach ($n in $cmpWorks) { Get-Content -LiteralPath (Join-Path $fx14 "comparisons\r1-$n.json") -Raw | ConvertFrom-Json -AsHashtable })
 Check 'records carry the exact brief + sha' (@($recs | Where-Object { $_['brief'] -ceq (Get-Content -LiteralPath (Join-Path $fx14 "art-runs\$($_['base_name']).json") -Raw | ConvertFrom-Json -AsHashtable)['image_prompt'] -and $_['chatgpt_sha256'] -eq (Get-FileHash -LiteralPath (Join-Path $inbox $_['chatgpt_image'])).Hash.ToLowerInvariant() }).Count -eq 2)
 New-Item -ItemType Directory -Force -Path (Join-Path $fx14 'comparisons\rounds') | Out-Null
-[System.IO.File]::WriteAllText((Join-Path $fx14 'comparisons\rounds\r1.json'), '{"round_id": "r1", "vote_url": ""}', [System.Text.UTF8Encoding]::new($false))
+# 0.4.0: the round carries a published-CSV tally URL. It must surface ONLY once the round has closed.
+$tallyId  = "2PACX-$tok-TALLY"
+$tallyUrl = "https://docs.google.com/spreadsheets/d/e/$tallyId/pub?gid=0&single=true&output=csv"
+[System.IO.File]::WriteAllText((Join-Path $fx14 'comparisons\rounds\r1.json'), "{`"round_id`": `"r1`", `"vote_url`": `"`", `"tally_csv_url`": `"$tallyUrl`"}", [System.Text.UTF8Encoding]::new($false))
 
 # -- positive controls on the SOURCE: the detectors see the planted model names, label and metadata
 $srcPng = Join-Path $inbox $img1
@@ -277,6 +280,9 @@ Check "canary (label/stray) anywhere in open output=$($anyTok.Count)" ($anyTok.C
 Check 'no ChatGPT original published while open' (-not (Test-Path -LiteralPath (Join-Path $openSite 'cmp\orig')))
 $openPage = [System.IO.File]::ReadAllText((Join-Path $openSite 'c\r1.html'))
 Check 'open page: framing + Voting opens soon' ($openPage.Contains('One brief, two renderers. Informal, one sample each.') -and $openPage.Contains('Voting opens soon.'))
+# 0.4.0 tally: an OPEN round's pages carry no tally URL, no script, no CSP, no tally markup -- anywhere.
+$openTallyHits = Scan (Read-Tree $openSite) @($tallyId, 'spreadsheets', '<script', 'Content-Security-Policy', 'data-csv', 'data-pair', 'class="tally')
+Check "open output: tally URL/script/CSP/markup hits=$($openTallyHits.Count)" ($openTallyHits.Count -eq 0)
 # size sanity: same format, same dimensions, same chunk list, bytes within 4x
 $sizeNotes = [System.Collections.Generic.List[string]]::new()
 foreach ($h in $ph) {
@@ -304,6 +310,27 @@ Check 'served images identical open vs closed' (@($sameImgs | Where-Object { -no
 $origs = @(Get-ChildItem -LiteralPath (Join-Path $closedSite 'cmp\orig') -File -ErrorAction SilentlyContinue)
 Check "closed: C2PA originals published unmodified ($($origs.Count))" ($origs.Count -eq 2 -and @($origs | Where-Object { (Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant() -notin @($recs | ForEach-Object { $_['chatgpt_sha256'] }) }).Count -eq 0)
 Check 'stray never reaches closed output' ((Scan (Read-Tree $closedSite) @("$tok-STRAY")).Count -eq 0)
+# 0.4.0 tally on the CLOSED page: one inline script, pinned by the CSP's sha256; connect-src Google only.
+$scripts = [regex]::Matches($closedPage, '<script>(.*?)</script>', 'Singleline')
+$cspM = [regex]::Match($closedPage, '<meta http-equiv="Content-Security-Policy" content="([^"]+)">')
+$scriptHash = if ($scripts.Count -eq 1) { [System.Convert]::ToBase64String([System.Security.Cryptography.SHA256]::HashData([System.Text.UTF8Encoding]::new($false).GetBytes($scripts[0].Groups[1].Value))) } else { '' }
+Check "closed page: exactly one script ($($scripts.Count)) and no external script src" ($scripts.Count -eq 1 -and $closedPage -notmatch '<script[^>]+src=')
+Check 'closed page: CSP pins the script hash, connect-src docs.google.com + *.googleusercontent.com only' ($cspM.Success -and $cspM.Groups[1].Value.Contains("script-src 'sha256-$scriptHash';") -and $cspM.Groups[1].Value.Contains('connect-src https://docs.google.com https://*.googleusercontent.com;') -and ($cspM.Index -lt $closedPage.IndexOf('<script>')))
+Check 'closed page: data-csv is the round''s URL (escaped), one tally box per pair' ($closedPage.Contains("data-csv=`"$([System.Net.WebUtility]::HtmlEncode($tallyUrl))`"") -and [regex]::Matches($closedPage, '<div class="tally" data-pair="').Count -eq 2)
+Check 'closed comparisons index carries no tally' (-not [System.IO.File]::ReadAllText((Join-Path $closedSite 'comparisons.html')).Contains($tallyId))
+# behaviour in a real browser: counts render, every failure path says "Results unavailable.", CSP blocks
+# an off-list redirect, and no tally box or pair section changes height (no layout shift).
+$tallyPy = Join-Path $PSScriptRoot 'check_tally.py'
+$tp = & python $tallyPy (Join-Path $closedSite 'c\r1.html') "r1-$($cmpWorks[1])" "r1-$($cmpWorks[0])" $tallyUrl 2>&1; $tpExit = $LASTEXITCODE
+$tpJson = try { (($tp | Where-Object { $_ -notmatch '^\s*$' }) -join "`n") | ConvertFrom-Json } catch { $null }
+Check "closed page tally in Edge: $(if ($tpJson) { "$($tpJson.checks) scenario/viewport checks, failures=$($tpJson.failures.Count)" } else { 'probe returned no JSON' })" ($tpExit -eq 0 -and $null -ne $tpJson -and $tpJson.checks -eq 12 -and $tpJson.failures.Count -eq 0)
+$tallyNotes = @(if ($tpJson) { foreach ($l in $tpJson.summary) { "tally: $l" } })
+# validation: a non-Google tally URL fails the build before any output
+$fx14c = Join-Path $Scratch 'fixture-cmp-badtally'
+Copy-Item -LiteralPath $fx14 -Destination $fx14c -Recurse
+[System.IO.File]::WriteAllText((Join-Path $fx14c 'comparisons\rounds\r1.json'), '{"round_id": "r1", "vote_url": "", "tally_csv_url": "https://evil.example.com/spreadsheets/x.csv"}', [System.Text.UTF8Encoding]::new($false))
+$bt = & pwsh -NoProfile -File $Gen -Source $fx14c -Out (Join-Path $Scratch 'cmp-badtally-site') -BuildDir (Join-Path $Scratch 'cmp-badtally-build') -Today 2026-10-09 2>&1
+Check 'non-Google tally_csv_url aborts before output' (($LASTEXITCODE -eq 1) -and (($bt | Out-String) -match 'tally_csv_url must be') -and -not (Test-Path -LiteralPath (Join-Path $Scratch 'cmp-badtally-site')))
 
 # -- fail closed: an inbox image changed after ingest aborts the build
 $fx14b = Join-Path $Scratch 'fixture-cmp-tamper'
@@ -312,8 +339,64 @@ Copy-Item -LiteralPath $fx14 -Destination $fx14b -Recurse
 $t14 = & pwsh -NoProfile -File $Gen -Source $fx14b -Out (Join-Path $Scratch 'cmp-tamper-site') -BuildDir (Join-Path $Scratch 'cmp-tamper-build') -Today 2026-10-01 2>&1
 Check 'tampered inbox image aborts before output' (($LASTEXITCODE -eq 1) -and -not (Test-Path -LiteralPath (Join-Path $Scratch 'cmp-tamper-site')))
 
-[System.IO.File]::WriteAllText((Join-Path $Scratch 'gate14-run.log'), (($g14 + $sizeNotes + @("order local_is_a=$($order -join ',')")) -join "`n") + "`n", [System.Text.UTF8Encoding]::new($false))
-Gate '14' 'blind comparison: open round leaks no model/metadata/label; stray inbox file never served; pair not trivially distinguishable; reveal exact' $g14ok "$(@($g14 | Where-Object { $_ -like 'ok:*' }).Count)/$($g14.Count) checks ok; $(($g14 | Where-Object { $_ -like 'FAIL:*' }) -join '; '); pairs: $($sizeNotes -join ' | '); log: tests\_scratch\gate14-run.log"
+[System.IO.File]::WriteAllText((Join-Path $Scratch 'gate14-run.log'), (($g14 + $sizeNotes + $tallyNotes + @("order local_is_a=$($order -join ',')")) -join "`n") + "`n", [System.Text.UTF8Encoding]::new($false))
+Gate '14' 'blind comparison: open round leaks no model/metadata/label/tally; stray inbox file never served; pair not trivially distinguishable; reveal exact; closed tally works and fails safe' $g14ok "$(@($g14 | Where-Object { $_ -like 'ok:*' }).Count)/$($g14.Count) checks ok; $(($g14 | Where-Object { $_ -like 'FAIL:*' }) -join '; '); pairs: $($sizeNotes -join ' | '); log: tests\_scratch\gate14-run.log"
+
+# =============================================================================================
+# GATE 15 -- hold-out during an open round (0.4.0, founder 2026-10-02). While r1 is open, its local
+# halves (front-swings, great-tree) are absent from every served file: no base_name anywhere (round
+# page included), no title or poem line outside the round's own page (which must show the poem for the
+# blind to mean anything), no gallery image bytes. The hero falls back to the newest non-held work; the
+# Evolution chart and the stats count only visible works. At close, everything returns.
+# Positive controls: every needle is first shown to hit in the CLOSED build.
+# =============================================================================================
+$g15 = [System.Collections.Generic.List[string]]::new(); $g15ok = $true
+function Check15([string]$what, [bool]$ok) { if (-not $ok) { $script:g15ok = $false; $g15.Add("FAIL:$what") } else { $g15.Add("ok:$what") } }
+$openTree = Read-Tree $openSite; $closedTree = Read-Tree $closedSite
+$roundPage = Join-Path $openSite 'c\r1.html'
+$visible = '2026-09-07-moonbounce'
+foreach ($bn in $cmpWorks) {
+    $md = [System.IO.File]::ReadAllText((Join-Path $fx14 "$bn.md"), $Utf8Strict).Replace("`r`n", "`n")
+    $title = if ($md -match '(?m)^#\s+(.+)$') { $Matches[1].Trim() } else { '' }
+    $poemLines = @(($md -split "`n---`n")[1] -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_.Length -ge 20 -and $_ -notmatch '^#' -and $_ -notmatch ':\s' } | Select-Object -Unique)
+    $textNeedles = @($title, [System.Net.WebUtility]::HtmlEncode($title)) + @(foreach ($l in $poemLines) { $l; [System.Net.WebUtility]::HtmlEncode($l) }) | Select-Object -Unique
+    $galHashes = @(foreach ($s in '', '-t') { $p = Join-Path $closedSite "img\$bn$s.webp"; if (Test-Path -LiteralPath $p) { (Get-FileHash -LiteralPath $p).Hash } })
+    # positive controls: in the CLOSED build the work is back and every detector fires
+    Check15 "PC $bn closed: page + 2 gallery images exist" ((Test-Path -LiteralPath (Join-Path $closedSite "p\$bn.html")) -and $galHashes.Count -eq 2)
+    Check15 "PC $bn closed: base_name in index+evolution" ($closedTree[(Join-Path $closedSite 'index.html')].Contains($bn) -and $closedTree[(Join-Path $closedSite 'evolution.html')].Contains($bn))
+    $pcText = Scan $closedTree $textNeedles
+    Check15 "PC $bn closed: title + $($poemLines.Count) poem lines seen outside the round page ($(@($pcText | Where-Object { $_ -notlike '*\c\r1.html' }).Count) hits)" ($title -ne '' -and $poemLines.Count -ge 3 -and @($pcText | Where-Object { $_ -notlike '*\c\r1.html' -and $_ -like "*\p\$bn.html" }).Count -ge 1)
+    # held while OPEN
+    $nameFiles = @($openTree.Keys | Where-Object { $_.Substring($openSite.Length) -like "*$bn*" })
+    Check15 "$bn open: no served file named for it ($($nameFiles.Count))" ($nameFiles.Count -eq 0)
+    $bnHits = Scan $openTree @($bn)
+    Check15 "$bn open: base_name in any served file incl. round page = $($bnHits.Count)" ($bnHits.Count -eq 0)
+    $txtHits = @(Scan $openTree $textNeedles | Where-Object { -not $_.EndsWith(" @ $roundPage") })
+    Check15 "$bn open: title/poem lines outside the round page = $($txtHits.Count)" ($txtHits.Count -eq 0)
+    $byteHits = @(foreach ($k in $openTree.Keys) { if ((Get-FileHash -LiteralPath $k).Hash -in $galHashes) { $k } })
+    Check15 "$bn open: gallery image bytes (sha256) in any served file = $($byteHits.Count)" ($byteHits.Count -eq 0)
+}
+$oIndex = $openTree[(Join-Path $openSite 'index.html')]; $cIndex = $closedTree[(Join-Path $closedSite 'index.html')]
+$heroOpen = [regex]::Match($oIndex, '<a class="today-art" href="p/([^"]+)\.html"').Groups[1].Value
+Check15 "open hero falls back to newest non-held work ($heroOpen)" ($heroOpen -eq $visible)
+$statO = [regex]::Match($oIndex, '<strong>(\d+)</strong><span>published works').Groups[1].Value; $statC = [regex]::Match($cIndex, '<strong>(\d+)</strong><span>published works').Groups[1].Value
+Check15 "stats published works open=$statO closed=$statC" ($statO -eq '1' -and $statC -eq '3')
+$dotsO = [regex]::Matches($openTree[(Join-Path $openSite 'evolution.html')], '<circle ').Count; $dotsC = [regex]::Matches($closedTree[(Join-Path $closedSite 'evolution.html')], '<circle ').Count
+Check15 "evolution points open=$dotsO closed=$dotsC" ($dotsO -eq 1 -and $dotsC -eq 3)
+$oPieces = @(Get-ChildItem -LiteralPath (Join-Path $openSite 'p') -File | ForEach-Object Name); $oImgs = @(Get-ChildItem -LiteralPath (Join-Path $openSite 'img') -File | ForEach-Object Name)
+Check15 "open p/=$($oPieces -join ',') img/=$($oImgs.Count)" (($oPieces -join ',') -eq "$visible.html" -and $oImgs.Count -eq 2)
+Check15 'open round page links to no piece page' ($openTree[$roundPage] -notmatch 'href="[^"]*p/')
+$oLogHold = @(Get-Content -LiteralPath (Join-Path $Scratch 'cmp-open-build\build.log') | Where-Object { $_ -match '^HOLD ' }).Count
+Check15 "open build log: HOLD lines=$oLogHold" ($oLogHold -eq 2)
+# byte-stable with a hold in force: a second open build is identical file for file
+$openSite2 = Join-Path $Scratch 'cmp-open-site2'
+& pwsh -NoProfile -File $Gen -Source $fx14 -Out $openSite2 -BuildDir (Join-Path $Scratch 'cmp-open-build2') -Today 2026-10-08 2>&1 | Out-Null
+$h1 = @{}; foreach ($f in Get-ChildItem -LiteralPath $openSite -Recurse -File) { $h1[$f.FullName.Substring($openSite.Length)] = (Get-FileHash -LiteralPath $f.FullName).Hash }
+$h2 = @{}; foreach ($f in Get-ChildItem -LiteralPath $openSite2 -Recurse -File) { $h2[$f.FullName.Substring($openSite2.Length)] = (Get-FileHash -LiteralPath $f.FullName).Hash }
+$hd = @(foreach ($k in ($h1.Keys + $h2.Keys | Select-Object -Unique)) { if (-not $h1.ContainsKey($k) -or -not $h2.ContainsKey($k) -or $h1[$k] -ne $h2[$k]) { $k } })
+Check15 "open (held) build byte-stable across two runs: files=$($h1.Count) differences=$($hd.Count)" ($h1.Count -gt 0 -and $hd.Count -eq 0)
+[System.IO.File]::WriteAllText((Join-Path $Scratch 'gate15-run.log'), ($g15 -join "`n") + "`n", [System.Text.UTF8Encoding]::new($false))
+Gate '15' 'hold-out: an open round''s local works vanish from the public site (names, text, image bytes, hero, stats, chart) and return at close' $g15ok "$(@($g15 | Where-Object { $_ -like 'ok:*' }).Count)/$($g15.Count) checks ok; $(($g15 | Where-Object { $_ -like 'FAIL:*' }) -join '; '); log: tests\_scratch\gate15-run.log"
 
 # =============================================================================================
 # REAL CORPUS BUILD (run A) -- gates 3,4,5,7,8,9 read this; gate 6 compares it with run B
@@ -324,7 +407,8 @@ $worksA = if ($runA.output -match 'works=(\d+)') { [int]$Matches[1] } else { -1 
 $siteTree = Read-Tree $Site
 $htmlKeys = @($siteTree.Keys | Where-Object { $_ -like '*.html' })
 $buildLog = Get-Content -LiteralPath (Join-Path $Build 'build.log')
-$published = @($buildLog | Where-Object { $_ -match '^PAIR\s+base_name=(\S+)' } | ForEach-Object { $Matches[1] })
+# 0.4.0: PAIR lines include held works; PUBLISH lines are what reaches _site.
+$published = @($buildLog | Where-Object { $_ -match '^PUBLISH\s+base_name=(\S+)' } | ForEach-Object { $Matches[1] })
 $cmpRounds = @($buildLog | Where-Object { $_ -match '^ROUND\s+(\S+)' } | ForEach-Object { $Matches[1] })
 $cmpPairs  = @($buildLog | Where-Object { $_ -match '^PAIRENC\s+([0-9a-f]{16})' } | ForEach-Object { $Matches[1] })
 
