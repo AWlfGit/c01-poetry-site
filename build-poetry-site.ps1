@@ -25,6 +25,16 @@
 .PARAMETER Out           Output directory. Emptied and regenerated on every run.
 .PARAMETER BuildDir      Scratch dir for the run log and encoder job file (never published).
 .PARAMETER IncludeRoast  Emit the roast + losing drafts on each piece page. Default off.
+.PARAMETER Today         yyyy-MM-dd that decides whether a comparison round is open or closed.
+                         Defaults to today's UTC date; the gate harness passes it for byte-stable runs.
+
+  COMPARISONS (0.3.0, BOARDLOG-2026-10-01-POETRY-FULL-PROJECT Phase 2 pilot). A second enumerated
+  source, <Source>\comparisons\*.json, one record per pair. Each record names exactly one file in
+  <Source>\comparisons\inbox and pins it by sha256, and names one accepted base_name whose brief it
+  must repeat byte for byte. The generator never lists the inbox. Both images of a pair go through
+  one identical re-encode. Served names are a pair hash plus a/b, and the hash picks the a/b order.
+  While a round is open (Today <= round_closes) its page carries no model name, label, alt text or
+  script that says which image is which. After it closes, the page reveals.
 
 .OUTPUTS
   Exit 0 on success. Exit 1 on any record that names a missing pair, a duplicate base_name,
@@ -35,14 +45,16 @@ param(
     [string]$Source   = $env:C01POETRY_SOURCE,
     [string]$Out      = (Join-Path $PSScriptRoot '_site'),
     [string]$BuildDir = (Join-Path $PSScriptRoot '_build'),
-    [switch]$IncludeRoast
+    [switch]$IncludeRoast,
+    [string]$Today    = ([DateTime]::UtcNow.ToString('yyyy-MM-dd'))
 )
 
 Set-StrictMode -Version Latest
 if ([string]::IsNullOrWhiteSpace($Source)) { Write-Host 'ERROR -Source not given and C01POETRY_SOURCE is not set'; exit 1 }
+if ($Today -notmatch '^\d{4}-\d{2}-\d{2}$') { Write-Host "ERROR -Today must be yyyy-MM-dd, got '$Today'"; exit 1 }
 $ErrorActionPreference = 'Stop'
 
-$Script:Version   = '0.2.0'
+$Script:Version   = '0.3.0'
 $Script:SiteTitle = 'C01 Poetry & Illustration'
 $Script:Entity    = 'c0rw1n innovative inc'
 $Script:HomeUrl   = 'https://c0rw1n.com/'
@@ -174,12 +186,75 @@ $byName = @{}; foreach ($w in $works) { $byName[$w.base_name] = $w }
 $ordered = @(foreach ($k in $keys) { $byName[$k] })
 
 # ---------------------------------------------------------------------------------------------
+# 2b. Comparisons -- the SECOND and last enumerator: <Source>\comparisons\*.json (records only).
+#     The inbox is never listed here; each record names its one image and pins it by sha256.
+# ---------------------------------------------------------------------------------------------
+$Script:CmpFields = 'pair_id', 'base_name', 'brief', 'chatgpt_image', 'chatgpt_sha256', 'chatgpt_model', 'generated_on', 'round_id', 'round_closes'
+$cmpDir = Join-Path $Source 'comparisons'
+$pairs  = [System.Collections.Generic.List[hashtable]]::new()
+$rounds = @{}   # round_id -> @{ id; closes; vote_url; open; pairs }
+if (Test-Path -LiteralPath $cmpDir -PathType Container) {
+    $cmpFiles = @(Get-ChildItem -LiteralPath (Join-Path $Source 'comparisons') -Filter '*.json' -File | Sort-Object -Property Name)
+    Log "ENUMERATE dir=comparisons records=$($cmpFiles.Count) today=$Today"
+    $seenPair = @{}; $seenImg = @{}
+    foreach ($f in $cmpFiles) {
+        $c = $null
+        try { $c = Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable } catch { Fail "unparseable comparison record $($f.Name): $($_.Exception.Message)" }
+        foreach ($k in $Script:CmpFields) { if (-not $c.ContainsKey($k) -or $c[$k] -isnot [string] -or [string]::IsNullOrWhiteSpace($c[$k])) { Fail "comparison record $($f.Name) lacks string field '$k'" } }
+        $pairId = $c['pair_id']; $bn = $c['base_name']; $rid = $c['round_id']; $img = $c['chatgpt_image']
+        if ($pairId -notmatch '^[a-z0-9][a-z0-9\-]*$') { Fail "pair_id '$pairId' in $($f.Name) is not a plain slug" }
+        if ($rid    -notmatch '^[a-z0-9][a-z0-9\-]*$') { Fail "round_id '$rid' in $($f.Name) is not a plain slug" }
+        if ($img -notmatch '^[^\\/:*?"<>|]+\.(png|jpg|jpeg|webp)$' -or $img.StartsWith('.')) { Fail "chatgpt_image '$img' in $($f.Name) is not a plain image file name" }
+        foreach ($dk in 'generated_on', 'round_closes') { if ($c[$dk] -notmatch '^\d{4}-\d{2}-\d{2}$') { Fail "$dk in $($f.Name) must be a date only (yyyy-MM-dd)" } }
+        if ($c['chatgpt_sha256'] -cnotmatch '^[0-9a-f]{64}$') { Fail "chatgpt_sha256 in $($f.Name) is not a lowercase sha256" }
+        if ($seenPair.ContainsKey($pairId)) { Fail "duplicate pair_id '$pairId' ($($seenPair[$pairId]) and $($f.Name))" }
+        if ($seenImg.ContainsKey($img))     { Fail "inbox image '$img' named by two records ($($seenImg[$img]) and $($f.Name))" }
+        $seenPair[$pairId] = $f.Name; $seenImg[$img] = $f.Name
+        if (-not $byName.ContainsKey($bn)) { Fail "comparison $($f.Name) names base_name '$bn', which is not an accepted art-runs record" }
+        $w = $byName[$bn]
+        if ($c['brief'] -cne $w.art_prompt) { Fail "comparison $($f.Name): brief differs from the accepted record's image_prompt for '$bn' (one brief for both renderers is the experiment)" }
+        $imgPath = Join-Path (Join-Path $cmpDir 'inbox') $img
+        if (-not (Test-Path -LiteralPath $imgPath -PathType Leaf)) { Fail "comparison $($f.Name) names inbox image '$img', which does not exist" }
+        $sha = (Get-FileHash -LiteralPath $imgPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($sha -ne $c['chatgpt_sha256']) { Fail "comparison $($f.Name): inbox image '$img' does not match the record's sha256 (re-run tools\Ingest-Comparison.ps1)" }
+        # Pair hash names the served files. Nothing shown while the round is open lets a reader derive it.
+        $ph = ([System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($Script:Utf8.GetBytes("c01poetry-cmp|$pairId|$sha")))).ToLowerInvariant().Substring(0, 16)
+        $ob = [System.Security.Cryptography.SHA256]::HashData($Script:Utf8.GetBytes("$ph|order"))
+        $localIsA = (($ob[0] -band 1) -eq 0)
+        if (-not $rounds.ContainsKey($rid)) { $rounds[$rid] = @{ id = $rid; closes = $c['round_closes']; vote_url = ''; open = $true; pairs = [System.Collections.Generic.List[hashtable]]::new() } }
+        elseif ($rounds[$rid].closes -ne $c['round_closes']) { Fail "round '$rid' has two round_closes dates ($($rounds[$rid].closes), and $($c['round_closes']) in $($f.Name))" }
+        $pr = @{ pair_id = $pairId; hash = $ph; local_is_a = $localIsA; work = $w; img = $imgPath; ext = [System.IO.Path]::GetExtension($img).ToLowerInvariant()
+                 model = $c['chatgpt_model']; generated_on = $c['generated_on']; round = $rid }
+        $rounds[$rid].pairs.Add($pr); $pairs.Add($pr)
+        Log "CMP    $($f.Name) pair=$ph round=$rid base_name=$bn"
+    }
+    # Round records: <Source>\comparisons\rounds\<round_id>.json, read by exact name. Optional.
+    foreach ($rid in @($rounds.Keys)) {
+        $rp = Join-Path (Join-Path $cmpDir 'rounds') "$rid.json"
+        if (Test-Path -LiteralPath $rp -PathType Leaf) {
+            $rr = $null
+            try { $rr = Get-Content -LiteralPath $rp -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable } catch { Fail "unparseable round record $rid.json: $($_.Exception.Message)" }
+            $vu = if ($rr.ContainsKey('vote_url') -and $rr['vote_url'] -is [string]) { $rr['vote_url'].Trim() } else { '' }
+            if ($vu -and $vu -notmatch '^https://[^\s"<>]+$') { Fail "round $rid vote_url must be an https URL or empty" }
+            $rounds[$rid].vote_url = $vu
+        }
+        # Closes at the end of round_closes: open on that date, revealed from the next day.
+        $rounds[$rid].open = ([string]::CompareOrdinal($Today, $rounds[$rid].closes) -le 0)
+        $rounds[$rid].pairs.Sort([System.Comparison[hashtable]] { param($x, $y) [string]::CompareOrdinal($x.hash, $y.hash) })
+        Log "ROUND  $rid closes=$($rounds[$rid].closes) state=$(if ($rounds[$rid].open) { 'open' } else { 'closed' }) pairs=$($rounds[$rid].pairs.Count) vote_url=$(if ($rounds[$rid].vote_url) { 'set' } else { 'empty' })"
+    }
+}
+$roundKeys = [System.Collections.Generic.List[string]]::new(); foreach ($k in $rounds.Keys) { $roundKeys.Add($k) }
+$roundKeys.Sort([System.StringComparer]::Ordinal); $roundKeys.Reverse()
+
+# ---------------------------------------------------------------------------------------------
 # 3. Fresh output directory.
 # ---------------------------------------------------------------------------------------------
 if (Test-Path -LiteralPath $Out) { Remove-Item -LiteralPath $Out -Recurse -Force }
 New-Item -ItemType Directory -Force -Path (Join-Path $Out 'p')   | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Out 'img') | Out-Null
 New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
+if ($pairs.Count -gt 0) { New-Item -ItemType Directory -Force -Path (Join-Path $Out 'cmp') | Out-Null }
 
 # ---------------------------------------------------------------------------------------------
 # 4. Images -- one batch through the encoder. Pixels only; no chunk is copied.
@@ -198,6 +273,32 @@ if ($jobs.Count -gt 0) {
         $r = $line | ConvertFrom-Json -AsHashtable
         $dims[$r['base']] = $r
         Log "ENCODE $($r['base']) src=$($r['src_w'])x$($r['src_h']) src_chunks=$($r['src_text_chunks']) full=$($r['full_w'])x$($r['full_h']) $($r['full_bytes'])B thumb=$($r['thumb_w'])x$($r['thumb_h']) $($r['thumb_bytes'])B"
+    }
+}
+
+# 4b. Comparison pairs: both images through ONE identical pipeline (encode_webp.py pair).
+$cmpDims = @{}
+if ($pairs.Count -gt 0) {
+    $pjobs = @(foreach ($pr in $pairs) {
+        @{ pair = $pr.hash; local = $pr.work.png; remote = $pr.img; out_a = (Join-Path $Out "cmp\$($pr.hash)-a.webp"); out_b = (Join-Path $Out "cmp\$($pr.hash)-b.webp"); local_is_a = $pr.local_is_a; max_side = 1024; quality = 82 }
+    })
+    $pjobFile = Join-Path $BuildDir 'pair-jobs.json'
+    Write-Text $pjobFile (ConvertTo-Json -InputObject $pjobs -Depth 4)
+    $pOut = & python $Script:Encoder pair --jobs $pjobFile 2>&1
+    if ($LASTEXITCODE -ne 0) { Fail "pair encoder failed: $($pOut -join ' | ')" }
+    foreach ($line in $pOut) {
+        if ($line -notmatch '^\{') { Log "ENCODER $line"; continue }
+        $r = $line | ConvertFrom-Json -AsHashtable
+        $cmpDims[$r['pair']] = $r
+        Log "PAIRENC $($r['pair']) out=$($r['w'])x$($r['h']) a=$($r['a_bytes'])B b=$($r['b_bytes'])B remote_src=$($r['remote_src'] -join 'x') remote_meta_keys=$(@($r['remote_info_keys']).Count) icc_to_srgb=$($r['remote_icc_converted'])"
+    }
+    foreach ($pr in $pairs) { if (-not $cmpDims.ContainsKey($pr.hash)) { Fail "pair encoder returned no result for a pair in round $($pr.round)" } }
+    # The C2PA original names its model, so it is published only after its round has closed.
+    foreach ($pr in $pairs) {
+        if (-not $rounds[$pr.round].open) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $Out 'cmp\orig') | Out-Null
+            Copy-Item -LiteralPath $pr.img -Destination (Join-Path $Out "cmp\orig\$($pr.hash)-original$($pr.ext)")
+        }
     }
 }
 
@@ -265,7 +366,7 @@ function Tint($w) {
 }
 function Page-Head([string]$title, [string]$root, [string]$active, [string]$desc) {
     $nav = @(
-        @('index.html', 'Gallery', 'gallery'), @('experiment.html', 'The experiment', 'experiment'), @('evolution.html', 'Evolution', 'evolution')
+        @('index.html', 'Gallery', 'gallery'), @('experiment.html', 'The experiment', 'experiment'), @('evolution.html', 'Evolution', 'evolution'), @('comparisons.html', 'Compare', 'compare')
     ) | ForEach-Object {
         $cur = if ($_[2] -eq $active) { ' aria-current="page"' } else { '' }
         "<a href=`"$root$($_[0])`"$cur>$($_[1])</a>"
@@ -285,6 +386,14 @@ function Page-Head([string]$title, [string]$root, [string]$active, [string]$desc
 <body>
 <a class="skip" href="#main">Skip to content</a>
 <header class="bar"><a class="mark" href="${root}index.html"><span class="glyph" aria-hidden="true">&#10022;</span> C01 <em>Poetry &amp; Illustration</em></a><nav aria-label="Site">$($nav -join '')<a href="$Script:HomeUrl">c0rw1n.com &#8599;</a></nav></header>
+"@
+}
+# Comparison pages use this footer: it names no model, so an open round's page carries none.
+function Page-Foot-Neutral {
+@"
+<footer><p>An experiment by <a href="$Script:HomeUrl">$(Esc $Script:Entity)</a> (c01corp). <a href="$Script:HomeUrl">Visit c0rw1n.com</a>.</p><p>Code MIT. Each image's credit and licence are shown on its round's page once the round closes. Build $Script:Version.</p></footer>
+</body>
+</html>
 "@
 }
 function Page-Foot {
@@ -514,6 +623,63 @@ $sb = [System.Text.StringBuilder]::new()
 [void]$sb.Append((Page-Foot))
 Write-Text (Join-Path $Out 'evolution.html') $sb.ToString()
 
+# Comparisons: an index page plus one page per round. Open rounds are blind; closed rounds reveal.
+$Script:Framing = 'One brief, two renderers. Informal, one sample each.'
+$sb = [System.Text.StringBuilder]::new()
+[void]$sb.Append((Page-Head "Compare - $Script:SiteTitle" '' 'compare' 'One brief, two renderers: unlabelled side-by-side illustrations of the same poem.'))
+[void]$sb.Append("<main id=`"main`" class=`"prose`">`n<p class=`"eyebrow`">Compare</p>`n<h1>Which picture fits the poem?</h1>`n<p class=`"lede`">$Script:Framing Each round shows the same brief drawn twice, unlabelled. Which renderer made which image is revealed after the round closes.</p>`n")
+if ($roundKeys.Count -eq 0) {
+    [void]$sb.Append("<p class=`"empty`">No comparison rounds yet. When one opens, it will appear here.</p>`n")
+} else {
+    [void]$sb.Append("<ul class=`"rounds`">`n")
+    foreach ($rid in $roundKeys) {
+        $r = $rounds[$rid]
+        $state = if ($r.open) { "open until $(Esc $r.closes)" } else { "closed $(Esc $r.closes), renderers revealed" }
+        [void]$sb.Append("<li><a href=`"c/$rid.html`">Round $(Esc $rid)</a><span>$($r.pairs.Count) $(if ($r.pairs.Count -eq 1) { 'poem' } else { 'poems' }) &middot; $state</span></li>`n")
+    }
+    [void]$sb.Append("</ul>`n")
+}
+[void]$sb.Append("</main>`n").Append((Page-Foot-Neutral))
+Write-Text (Join-Path $Out 'comparisons.html') $sb.ToString()
+
+foreach ($rid in $roundKeys) {
+    $r = $rounds[$rid]
+    $sb = [System.Text.StringBuilder]::new()
+    [void]$sb.Append((Page-Head "Round $rid - $Script:SiteTitle" '../' 'compare' 'One brief, two renderers: an unlabelled side-by-side comparison round.'))
+    [void]$sb.Append("<main id=`"main`" class=`"cmp`">`n<p class=`"eyebrow`">Compare &middot; Round $(Esc $rid)</p>`n<h1>One brief, two renderers</h1>`n<p class=`"lede`">$Script:Framing</p>`n")
+    if ($r.open) {
+        [void]$sb.Append("<p class=`"status`">This round is open until $(Esc $r.closes). Which renderer made which image is revealed after it closes.</p>`n")
+        if ($r.vote_url) { [void]$sb.Append("<p class=`"vote`"><a href=`"$(Esc $r.vote_url)`" rel=`"noopener`">Vote for the image that fits each poem better</a></p>`n") }
+        else             { [void]$sb.Append("<p class=`"vote`">Voting opens soon.</p>`n") }
+    } else {
+        [void]$sb.Append("<p class=`"status`">This round closed on $(Esc $r.closes). The renderers are revealed below.</p>`n")
+    }
+    $n = 0
+    foreach ($pr in $r.pairs) {
+        $n++; $w = $pr.work; $d = $cmpDims[$pr.hash]
+        [void]$sb.Append("<section class=`"pair`" aria-labelledby=`"pr-$n`">`n<h2 id=`"pr-$n`">$(Esc $w.title)</h2>`n<div class=`"duo`">")
+        foreach ($side in 'a', 'b') {
+            $isLocal = (($side -eq 'a') -eq $pr.local_is_a)
+            $L = $side.ToUpperInvariant()
+            [void]$sb.Append("<figure class=`"art`"><span class=`"frame`"><img src=`"../cmp/$($pr.hash)-$side.webp`" width=`"$($d['w'])`" height=`"$($d['h'])`" alt=`"$(Esc "Image $L for the poem $($w.title)")`"></span><figcaption><span class=`"t`">Image $L</span>")
+            if (-not $r.open) {
+                if ($isLocal) {
+                    $rm = if ($w.credits.Contains('render') -and $w.credits['render'].model) { $w.credits['render'].model } else { 'a local diffusion model' }
+                    [void]$sb.Append("<span class=`"by`">Rendered locally by $(Esc $rm) on one home GPU. Dedicated to the public domain (CC0 1.0), like the rest of this site.</span>")
+                } else {
+                    [void]$sb.Append("<span class=`"by`">Generated by $(Esc $pr.model), $(Esc $pr.generated_on), via ChatGPT; not covered by this site's CC0 dedication. <a href=`"../cmp/orig/$($pr.hash)-original$($pr.ext)`">Original file, with its content credentials</a>.</span>")
+                }
+            }
+            [void]$sb.Append("</figcaption></figure>")
+        }
+        [void]$sb.Append("</div>`n<div class=`"poem`">").Append((Poem-Html $w.poem)).Append("</div>`n")
+        [void]$sb.Append("<div class=`"prompt`"><h3>The brief both renderers were given</h3><p>$(Esc $w.art_prompt)</p></div>`n</section>`n")
+    }
+    [void]$sb.Append("<p class=`"note`">Both images were re-encoded the same way for this page: same size, same format, metadata removed. The second renderer's image was centre-cropped to the shape of the local image.</p>`n")
+    [void]$sb.Append("<p><a href=`"../comparisons.html`">All rounds</a></p>`n</main>`n").Append((Page-Foot-Neutral))
+    Write-Text (Join-Path $Out "c\$rid.html") $sb.ToString()
+}
+
 # CSS -- rem units, no fixed pixel widths, grids collapse by content, dark by default.
 $css = @'
 :root{color-scheme:dark light;--bg:#0d0c0b;--panel:#171513;--fg:#efe9dd;--mute:#a59e90;--line:#2c2925;--gold:#e8b24c;--f:#1f1d1a;--a:#e8b24c;--serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;--sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
@@ -627,6 +793,15 @@ div.prompt h3{color:var(--fg);font-size:.8rem;letter-spacing:.08em;text-transfor
 .milestones li::before{content:"";position:absolute;left:-.4rem;top:.45rem;width:.7rem;height:.7rem;border-radius:50%;background:var(--gold)}
 .milestones time{display:block;font:600 .8rem var(--sans);color:var(--gold)}
 .empty{padding:3rem 1rem;text-align:center;color:var(--mute)}
+.rounds{list-style:none;padding:0;margin:1.5rem 0;display:grid;gap:.75rem;font-family:var(--sans)}
+.rounds li{display:grid;gap:.2rem;padding:1rem;border:1px solid var(--line);border-radius:.7rem;background:var(--panel)}
+.rounds span{font-size:.85rem;color:var(--mute)}
+.cmp .status,.cmp .vote{font-family:var(--sans)}
+.cmp .vote{font-size:1.05rem}
+.pair{margin:2.5rem 0;padding-top:1rem;border-top:1px solid var(--line)}
+.duo{list-style:none;display:grid;gap:clamp(1rem,2vw,1.75rem);grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr));margin-bottom:1.5rem}
+.duo .frame{border-radius:.6rem}
+.duo figcaption .t{font-family:var(--sans);font-weight:600}
 .roast pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem}
 .piece h1{font-size:clamp(1.6rem,1rem + 2vw,2.5rem)}
 h1,h2,h3,figcaption .t{text-wrap:balance}
