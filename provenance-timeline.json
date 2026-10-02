@@ -1,0 +1,85 @@
+{
+  "_comment": "Which model held each role, and when. Used ONLY for works whose art-runs record has no `models` block (everything accepted before 2026-09-26). Boundaries come from dated commits or recorded front matter, in the pipeline's own clock, the same clock as each record's accepted_at. An era marked bound=no-later-than comes from a backup commit, so the change had happened by then but may have happened earlier. A work accepted after 2026-09-26 carries its own recorded `models` block.",
+  "names": {
+    "qwen2.5:7b": "Qwen2.5 7B",
+    "qwen3.5:9b": "Qwen3.5 9B",
+    "qwen3:8b": "Qwen3 8B",
+    "flux1-schnell-fp8": "FLUX.1 [schnell]",
+    "sd_xl_base_1.0": "Stable Diffusion XL 1.0",
+    "sd_xl_base_1.0 + ip-adapter-plus_sdxl_vit-h": "Stable Diffusion XL 1.0 + IP-Adapter",
+    "opus": "Claude Opus",
+    "fable": "Claude Fable 5.1",
+    "claude-fable-5-1": "Claude Fable 5.1",
+    "claude-opus-5-5": "Claude Opus 5.5"
+  },
+  "roles": {
+    "poem_writer": {
+      "label": "Poem written by",
+      "note": "Recorded in every poem's own front matter since the first poem; the timeline is shown for the evolution chart only.",
+      "eras": [
+        {
+          "from": "2026-08-16 00:00",
+          "model": "qwen2.5:7b",
+          "evidence": "poem front matter"
+        },
+        {
+          "from": "2026-08-20 10:36",
+          "model": "qwen3.5:9b",
+          "evidence": "poem front matter; swap in commit 172fdaf 2026-08-20 after the Ollama 0.32.14 reinstall removed qwen2.5:7b"
+        }
+      ]
+    },
+    "prompt_writer": {
+      "label": "Image prompt written by",
+      "eras": [
+        {
+          "from": "2026-08-16 00:00",
+          "model": "qwen2.5:7b",
+          "evidence": "Invoke-DailyPoemArt.ps1 default before commit 172fdaf"
+        },
+        {
+          "from": "2026-08-20 10:36",
+          "model": "qwen3:8b",
+          "evidence": "commit 172fdaf; also recorded in each plan sidecar from 2026-09-16"
+        }
+      ]
+    },
+    "renderer": {
+      "label": "Image rendered by",
+      "eras": [
+        {
+          "series": "Memory Storage of a Modern System",
+          "model": "sd_xl_base_1.0",
+          "evidence": "text-only sdxl render path, replaced in commit 3a0d2a4"
+        },
+        {
+          "series": "First Light",
+          "model": "flux1-schnell-fp8",
+          "evidence": "commit 3a0d2a4 2026-09-07, render path --model flux"
+        }
+      ]
+    },
+    "judge_model": {
+      "label": "Image chosen by",
+      "agent": "art-critic",
+      "eras": [
+        {
+          "from": "2026-08-17 00:00",
+          "model": "opus",
+          "evidence": "agents/art-critic.md model: opus (commit 33d1d7e). The alias was not pinned to a version, so the exact Opus release is not recorded."
+        },
+        {
+          "from": "2026-09-03 22:09",
+          "model": "fable",
+          "evidence": "daily backup commit f058401; the switch happened no later than this. The previous backup still shows opus.",
+          "bound": "no-later-than"
+        },
+        {
+          "from": "2026-09-25 17:16",
+          "model": "claude-opus-5-5",
+          "evidence": "commit d221d27"
+        }
+      ]
+    }
+  }
+}
