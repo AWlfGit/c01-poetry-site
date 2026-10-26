@@ -2,9 +2,10 @@
 
 An open experiment in machine creativity by [c0rw1n innovative inc](https://c0rw1n.com/) (c01corp).
 
-Most days, a small open-weight model writes a poem, a second local model writes the picture brief, and a
-local diffusion model draws it, all on one home GPU. Claude, working as the art-critic in an AI corporation,
-scores every candidate image blind. Every published piece names the exact models that made it.
+Most days, small open-weight models on one home GPU write a poem, score the drafts and draw the picture:
+one local model writes the poem and the picture brief, a second scores the poem drafts, and a local image
+model draws it. Claude, working as the art-critic in an AI corporation, scores every candidate image blind.
+Every published piece names the models that wrote it, drew it and judged the picture.
 
 **Visit [c0rw1n.com](https://c0rw1n.com/)** for the company behind the experiment.
 
@@ -36,7 +37,7 @@ Requires PowerShell 7, Python 3 with Pillow, and Playwright with Microsoft Edge 
 
 ## Comparison rounds (0.3.0, pilot)
 
-"One brief, two renderers. Informal, one sample each." A round puts a local image and a ChatGPT image
+"One brief, two renderers. An informal test, with one image from each." A round puts a local image and a ChatGPT image
 of the same brief side by side, unlabelled, and reveals which is which after the round closes. Nothing
 here calls an external API or schedules anything. A person runs each batch by hand.
 

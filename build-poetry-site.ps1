@@ -446,11 +446,16 @@ function Credit-Line($w) {
 }
 function Credits-Html($w) {
     $c = $w.credits
+    # Each line must be true for the work's own era (poem process changed 2026-10-12; renders are
+    # flattened to a screen-print since 2026-09-29 08:41; First Light briefs are code + subject).
+    $poemText = if ([string]::CompareOrdinal($w.date, '2026-10-12') -ge 0) { 'Local model on one RTX 3070 Ti. It writes separate drafts that never see each other. A draft that breaks a fixed rule gets a score of 0. A second local model, Qwen3.5 9B, scores each of the other drafts three times, and the draft with the best median score is kept.' } elseif ($w.rounds) { 'Local model on one RTX 3070 Ti. Until 11 October 2026 the same model scored its own drafts and wrote new ones.' } else { 'Local model on one RTX 3070 Ti.' }
+    $briefText = if ($w.base_name -eq '2026-10-10-geyser') { 'Local model. It wrote the subject part of the brief shown below. Code wrote the rest. The published picture was not drawn from this brief: it was redrawn on 13 October with a glass kettle, at the founder&rsquo;s request, from a prompt Claude wrote.' } else { 'Local model. It reads the poem and writes the subject part of the picture brief. Code writes the rest.' }
+    $renderText = if ([string]::CompareOrdinal($w.accepted_at, '2026-09-29 08:41') -ge 0) { 'Local image model on the same graphics card. It draws several candidates. Before judging, code crops each one and flattens it to at most eight colours, so the image shown is not the raw render.' } elseif ($w.series -eq 'First Light') { 'Local image model on the same graphics card. It draws several candidates. Before judging, code crops each one, so the image shown is not the raw render.' } else { 'Local image model on the same graphics card. It draws several candidates for each poem.' }
     $rows = @(
-        @('poem',   'Poem written by',         'Local model on one RTX 3070 Ti. It also critiques its own drafts and rewrites up to five times.'),
-        @('prompt', 'Image prompt written by', 'Local model. It reads the poem and writes the picture brief.'),
-        @('render', 'Image rendered by',       'Local diffusion model on the same GPU. Several candidates per poem.'),
-        @('judge',  'Image chosen by',         'Claude, running as the corporation''s blind art-critic. It scores every candidate and never writes a prompt.')
+        @('poem',   'Poem written by',        $poemText),
+        @('prompt', 'Image brief written by', $briefText),
+        @('render', 'Image rendered by',      $renderText),
+        @('judge',  'Image chosen by',        'Claude, working as c01corp&rsquo;s art critic. It scores each candidate blind, without seeing the poem or the other candidates.')
     )
     $sb = [System.Text.StringBuilder]::new()
     [void]$sb.Append("<ol class=`"credits`">`n")
@@ -470,7 +475,7 @@ function Credits-Html($w) {
 function Tier-Text($w) {
     switch ($w.art_tier) {
         'founder-pick' { 'Founder&rsquo;s pick from the candidates' }
-        'best-of-n'    { 'Highest-scoring on-subject candidate (did not clear the judge&rsquo;s bar outright)' }
+        'best-of-n'    { if ([string]::CompareOrdinal($w.accepted_at, '2026-09-15 22:30') -ge 0) { 'Highest-scoring candidate that matched the subject. It did not clear the judge&rsquo;s bar.' } else { 'Picked from the scored candidates. It did not clear the judge&rsquo;s bar.' } }
         default        { 'Cleared the judge&rsquo;s bar' }
     }
 }
@@ -478,9 +483,9 @@ function Tier-Text($w) {
 # Piece pages, with previous / next in gallery order.
 for ($i = 0; $i -lt $ordered.Count; $i++) {
     $w = $ordered[$i]; $bn = $w.base_name; $d = $dims[$bn]
-    $alt = if ($w.theme) { "Illustration for the poem: $($w.theme)" } else { "Illustration for the poem $($w.title)" }
+    $alt = if ($w.theme) { "Illustration for the poem: $($w.theme -replace ' -> ', ', ')" } else { "Illustration for the poem $($w.title)" }
     $sb = [System.Text.StringBuilder]::new()
-    [void]$sb.Append((Page-Head "$($w.title) - $Script:SiteTitle" '../' 'gallery' "$($w.title): a poem and illustration made by local AI models and judged by Claude."))
+    [void]$sb.Append((Page-Head "$($w.title) - $Script:SiteTitle" '../' 'gallery' "$($w.title): a poem and illustration made by local AI models, with the image judged by Claude."))
     [void]$sb.Append("<main id=`"main`" class=`"piece`"$(Tint $w)>`n<article>`n")
     [void]$sb.Append("<figure class=`"art hero-art`"><span class=`"frame`"><img src=`"../img/$bn.webp`" width=`"$($d['full_w'])`" height=`"$($d['full_h'])`" alt=`"$(Esc $alt)`"></span></figure>`n")
     [void]$sb.Append("<div class=`"text`">`n<p class=`"eyebrow`">$(Esc $w.series) &middot; <time datetime=`"$(Esc $w.date)`">$(Esc $w.date)</time></p>`n<h1>$(Esc $w.title)</h1>`n")
@@ -489,12 +494,12 @@ for ($i = 0; $i -lt $ordered.Count; $i++) {
     [void]$sb.Append("<section class=`"method`" aria-labelledby=`"made-$bn`">`n<h2 id=`"made-$bn`">How this piece was made</h2>`n").Append((Credits-Html $w))
     [void]$sb.Append("<dl class=`"facts`">`n")
     if ($w.rounds) { [void]$sb.Append("<div><dt>Poem drafts</dt><dd>$(Esc $w.rounds)</dd></div>`n") }
-    if ($w.score)  { [void]$sb.Append("<div><dt>Poem self-score</dt><dd>$(Esc $w.score)/10</dd></div>`n") }
+    if ([string]$w.score -match '^\d+$')  { [void]$sb.Append("<div><dt>$(if ([string]::CompareOrdinal($w.date, '2026-10-12') -ge 0) { 'Poem score' } else { 'Poem self-score' })</dt><dd>$(if ([string]$w.score -eq '0' -and [string]::CompareOrdinal($w.date, '2026-10-12') -ge 0) { '0/10. No draft passed the fixed rules, so the critic did not score any of them.' } else { "$(Esc $w.score)/10" })</dd></div>`n") }
     if ($w.art_rounds) { [void]$sb.Append("<div><dt>Image candidates</dt><dd>$(Esc $w.art_rounds)</dd></div>`n") }
     if ($w.art_score -and $w.art_score -ne '-1') { [void]$sb.Append("<div><dt>Judge&rsquo;s score</dt><dd>$(Esc $w.art_score)/10</dd></div>`n") }
     if ($w.art_tier) { [void]$sb.Append("<div class=`"wide`"><dt>Selection</dt><dd>$(Tier-Text $w)</dd></div>`n") }
     [void]$sb.Append("</dl>`n")
-    if ($w.art_prompt) { [void]$sb.Append("<div class=`"prompt`"><h3>The image brief the local model wrote</h3><p>$(Esc $w.art_prompt)</p></div>`n") }
+    if ($w.art_prompt) { [void]$sb.Append("<div class=`"prompt`"><h3>The image brief</h3><p class=`"note`">Code wrote everything before &ldquo;The subject:&rdquo;. The local model wrote the part after it. When the chosen picture was a redraw, the judge&rsquo;s notes on what to fix were added to the end of this brief and are not shown here.$(if ($w.base_name -eq '2026-10-10-geyser') { ' This picture was not drawn from this brief. At the founder&rsquo;s request it was redrawn on 13 October with a glass kettle, from a prompt Claude wrote.' })</p><p>$(Esc $w.art_prompt)</p></div>`n") }
     [void]$sb.Append("</section>`n")
     if ($IncludeRoast -and $w.rest.Count -gt 0) {
         [void]$sb.Append("<section class=`"roast`">`n<h2>Roast and drafts</h2>`n<pre>").Append((Esc ($w.rest -join "`n"))).Append("</pre>`n</section>`n")
@@ -514,7 +519,7 @@ foreach ($w in $ordered) { foreach ($k in $w.credits.Keys) { if ($w.credits[$k].
 
 # Index
 $sb = [System.Text.StringBuilder]::new()
-[void]$sb.Append((Page-Head $Script:SiteTitle '' 'gallery' 'A daily poem and illustration, written and drawn by local open-weight AI models and judged by Claude. An open experiment in machine creativity by c01corp.'))
+[void]$sb.Append((Page-Head $Script:SiteTitle '' 'gallery' 'A poem and illustration most days, written and drawn by local open-weight AI models, with the images judged by Claude. An open experiment in machine creativity by c01corp.'))
 [void]$sb.Append("<main id=`"main`">`n")
 if (-not $latest) {
     [void]$sb.Append("<section class=`"intro`"><h1>An experiment in machine creativity</h1></section>`n<p class=`"empty`">No works have been published yet.</p>`n")
@@ -522,8 +527,8 @@ if (-not $latest) {
     $d = $dims[$latest.base_name]
     $excerpt = [System.Collections.Generic.List[string]]::new()
     foreach ($ln in $latest.poem) { if ($ln.Trim() -eq '' -and $excerpt.Count -gt 0) { break }; if ($ln.Trim() -ne '') { $excerpt.Add($ln) } }
-    [void]$sb.Append("<section class=`"intro`">`n<p class=`"eyebrow`">An open experiment in machine creativity</p>`n<h1>Most days, a machine writes a poem, <em>draws it</em>, and another machine scores it, in public.</h1>`n<p class=`"lede`">Small open-weight models running on one home GPU write each poem and render its illustration. Claude, working inside our AI corporation, judges every image blind. Images are published as rendered, only resized and re-encoded for the web. Most pieces score 3 to 5 out of 10, and we publish them anyway. Each piece names the exact models that made it. <a href=`"experiment.html`">How the experiment works</a>.</p>`n</section>`n")
-    [void]$sb.Append("<section class=`"today`"$(Tint $latest) aria-labelledby=`"latest-h`">`n<a class=`"today-art`" href=`"p/$($latest.base_name).html`"><span class=`"frame`"><img src=`"img/$($latest.base_name).webp`" width=`"$($d['full_w'])`" height=`"$($d['full_h'])`" alt=`"$(Esc ("Illustration for the poem: " + $latest.theme))`"></span></a>`n<div class=`"today-text`"><p class=`"eyebrow`">Latest &middot; $(Esc $latest.date)</p><h2 id=`"latest-h`"><a href=`"p/$($latest.base_name).html`">$(Esc $latest.title)</a></h2>`n<div class=`"poem`">").Append((Poem-Html $excerpt)).Append("</div>`n").Append((Credits-Html $latest)).Append("</div>`n</section>`n")
+    [void]$sb.Append("<section class=`"intro`">`n<p class=`"eyebrow`">An open experiment in machine creativity</p>`n<h1>Most days, small AI models on one home computer write a poem and <em>draw it</em>, and Claude judges the picture, in public.</h1>`n<p class=`"lede`">Small open-weight models running on one home GPU write each poem, score the drafts and draw the illustration. Claude, working inside our AI corporation, judges every image blind, without seeing the poem. Before judging, code crops each image and, since 30 September, flattens it into a screen-print. The site only resizes it for the web. Most images get 3 to 5 out of 10 from the judge, below its pass mark of 6, and we publish them anyway. Each piece names the models that wrote it, drew it and judged the picture. <a href=`"experiment.html`">How the experiment works</a>.</p>`n</section>`n")
+    [void]$sb.Append("<section class=`"today`"$(Tint $latest) aria-labelledby=`"latest-h`">`n<a class=`"today-art`" href=`"p/$($latest.base_name).html`"><span class=`"frame`"><img src=`"img/$($latest.base_name).webp`" width=`"$($d['full_w'])`" height=`"$($d['full_h'])`" alt=`"$(Esc ("Illustration for the poem: " + ($latest.theme -replace ' -> ', ', ')))`"></span></a>`n<div class=`"today-text`"><p class=`"eyebrow`">Latest &middot; $(Esc $latest.date)</p><h2 id=`"latest-h`"><a href=`"p/$($latest.base_name).html`">$(Esc $latest.title)</a></h2>`n<div class=`"poem`">").Append((Poem-Html $excerpt)).Append("</div>`n").Append((Credits-Html $latest)).Append("</div>`n</section>`n")
     [void]$sb.Append("<ul class=`"stats`" aria-label=`"The experiment in numbers`"><li><strong>$($ordered.Count)</strong><span>published works</span></li><li><strong>$seriesCount</strong><span>series so far</span></li><li><strong>$($modelSet.Count)</strong><span>models credited</span></li><li><strong>1</strong><span>home GPU</span></li></ul>`n")
     $seriesOrder = [System.Collections.Generic.List[string]]::new()
     foreach ($w in $ordered) { if (-not $seriesOrder.Contains($w.series)) { $seriesOrder.Add($w.series) } }
@@ -533,7 +538,7 @@ if (-not $latest) {
         [void]$sb.Append("<section class=`"series`">`n<div class=`"series-head`"><h2>$(Esc $s)</h2><p>$($inS.Count) works &middot; $(Esc $span)</p></div>`n<ul class=`"grid`">`n")
         foreach ($w in $inS) {
             $bn = $w.base_name; $d = $dims[$bn]
-            $alt = if ($w.theme) { "Illustration for the poem: $($w.theme)" } else { "Illustration for the poem $($w.title)" }
+            $alt = if ($w.theme) { "Illustration for the poem: $($w.theme -replace ' -> ', ', ')" } else { "Illustration for the poem $($w.title)" }
             [void]$sb.Append("<li$(Tint $w)><a href=`"p/$bn.html`"><figure class=`"art`"><span class=`"frame`"><img src=`"img/$bn-t.webp`" width=`"$($d['thumb_w'])`" height=`"$($d['thumb_h'])`" alt=`"$(Esc $alt)`" loading=`"lazy`"></span><figcaption><span class=`"date`">$(Esc $w.date)</span><span class=`"t`">$(Esc $w.title)</span><span class=`"by`">$(Credit-Line $w)</span></figcaption></figure></a></li>`n")
         }
         [void]$sb.Append("</ul>`n</section>`n")
@@ -544,13 +549,13 @@ Write-Text (Join-Path $Out 'index.html') $sb.ToString()
 
 # The experiment
 function Last-Era([string]$role) { $e = @($Script:TL['roles'][$role]['eras']); if ($e.Count) { return (Pretty $e[-1]['model']) }; return '' }
-$lineup = [ordered]@{ poem = @{ model = (Last-Era 'poem_writer') }; prompt = @{ model = (Last-Era 'prompt_writer') }; render = @{ model = (Last-Era 'renderer') }; judge = @{ model = (Last-Era 'judge_model') } }
+$lineup = [ordered]@{ poem = @{ model = (Last-Era 'poem_writer') }; critic = @{ model = (Last-Era 'poem_critic') }; prompt = @{ model = (Last-Era 'prompt_writer') }; render = @{ model = (Last-Era 'renderer') }; judge = @{ model = (Last-Era 'judge_model') } }
 function Lineup-Row([string]$k, [string]$label) {
     if ($lineup -and $lineup.Contains($k) -and $lineup[$k].model) { return "<li><span class=`"role`">$label</span><strong>$(Esc $lineup[$k].model)</strong></li>" }
     return ''
 }
 $sb = [System.Text.StringBuilder]::new()
-[void]$sb.Append((Page-Head "The experiment - $Script:SiteTitle" '' 'experiment' 'How an AI corporation runs a daily poem and illustration experiment on local models, with Claude as the judge.'))
+[void]$sb.Append((Page-Head "The experiment - $Script:SiteTitle" '' 'experiment' 'How an AI corporation runs a poem and illustration experiment on local models most days, with Claude judging the images.'))
 [void]$sb.Append(@"
 <main id="main" class="prose">
 <p class="eyebrow">The experiment</p>
@@ -560,36 +565,37 @@ $sb = [System.Text.StringBuilder]::new()
 <h2>Today&rsquo;s lineup</h2>
 <ul class="lineup">
 $(Lineup-Row 'poem' 'Writes the poem')
+$(Lineup-Row 'critic' 'Scores the poem drafts')
 $(Lineup-Row 'prompt' 'Writes the image brief')
 $(Lineup-Row 'render' 'Draws the image')
 $(Lineup-Row 'judge' 'Judges the image')
 </ul>
-<p class="note">Model names are trademarks of their owners, and this experiment is not affiliated with or endorsed by them. Every published piece lists the exact models that made it. A credit marked <span class="src rec">recorded</span> was written into the work&rsquo;s own record at the time. One marked <span class="src rcn">from pipeline history</span> predates that record and comes from the dated history on the <a href="evolution.html">Evolution</a> page.</p>
+<p class="note">Model names are trademarks of their owners, and this experiment is not affiliated with or endorsed by them. Every published piece lists the models that wrote its poem and image brief, drew the image and judged it. A credit marked <span class="src rec">recorded</span> was written into the work&rsquo;s own record at the time. One marked <span class="src rcn">from pipeline history</span> belongs to a work finished before 26 September 2026, when records began to list their models. It comes from the dated history on the <a href="evolution.html">Evolution</a> page.</p>
 
 <h2>One day in the studio</h2>
 <ol class="flow">
-<li><span class="step">06:00</span><div><h3>A local model writes the poem</h3><p>The poem model gets the day&rsquo;s theme and writes a draft. A second pass of the same model then critiques the draft and scores it. The poem is rewritten up to five times, and the best-scoring draft is kept. No cloud model touches the words.</p></div></li>
-<li><span class="step">08:00</span><div><h3>A local model writes the picture brief</h3><p>A second local model reads the poem and writes the image prompt. Claude is not allowed to write or rescue that prompt. If the brief is weak, the weak brief is the result.</p></div></li>
-<li><span class="step">08:05</span><div><h3>The GPU draws candidates</h3><p>A local diffusion model renders several candidates on the same home graphics card. Each has no API cost and never leaves the machine.</p></div></li>
-<li><span class="step">08:20</span><div><h3>Claude judges each one blind</h3><p>The corporation&rsquo;s art-critic agent scores every candidate on craft and on fit to the series style, from zero to ten. It checks each image at full resolution for defects. It cannot see the other candidates or earlier verdicts. An image that misses the poem&rsquo;s subject can never be chosen.</p></div></li>
-<li><span class="step">08:30</span><div><h3>The best candidate is kept, with its real score</h3><p>A candidate that clears the bar is published as a pass. If none does, the best on-subject candidate is published and marked as best-of-N, with its real score. Some days the founder picks a different candidate, and that piece says so.</p></div></li>
+<li><span class="step">06:00</span><div><h3>Two local models write and score the poem</h3><p>The poem model gets the day&rsquo;s theme and writes up to four separate drafts. If none scores at least 6, it may write up to two more, but only within five minutes of the start. So far that window has always closed first. No draft sees another. A draft that breaks a fixed rule, such as running past 18 lines, gets a score of 0 without being judged. A second local model scores each of the other drafts three times, and the draft with the best median score is kept, with a short title the poet writes. If every draft breaks a rule, one is still published with a score of 0. No cloud model writes or scores the words.</p></div></li>
+<li><span class="step">08:00</span><div><h3>A local model writes the picture brief</h3><p>The same model that wrote the poem reads it and describes what the picture should show. Code adds the theme and a fixed paragraph on style, colour and composition to make the full brief. Claude is not allowed to write or rescue the brief. If the brief is weak, the weak brief is used. When a candidate is redrawn, the judge&rsquo;s note on what to fix is added to the end.</p></div></li>
+<li><span class="step">08:05</span><div><h3>The graphics card draws candidates</h3><p>A local image model, FLUX.1 [schnell], draws one candidate at a time on the same home graphics card, up to four for the day&rsquo;s poem. Code then crops each render and flattens it into a screen-print of at most eight colours. That flat version is what gets judged and published. Drawing costs nothing per image, but each candidate is sent to Claude to be judged.</p></div></li>
+<li><span class="step">08:06</span><div><h3>Claude judges each one blind</h3><p>Drawing and judging take turns, so each candidate is judged before the next is drawn. The corporation&rsquo;s art-critic agent scores it from zero to ten, once for craft and once for fit to the series style, and the lower score counts. It checks the image at full resolution for defects. It is told the theme, but it does not see the poem, the other candidates or earlier scores. It also marks any image that misses the poem&rsquo;s subject.</p></div></li>
+<li><span class="step">08:15</span><div><h3>The best candidate is kept, with its real score</h3><p>A candidate clears the bar if it scores at least 6 for both craft and style, matches the subject and has no serious defect. It is published as a pass. If none clears the bar, the highest-scoring candidate that matches the subject is published anyway, and its page says it did not clear the bar. If every candidate misses the subject, nothing is published that day. Some days the founder picks a different candidate, even one the judge marked off subject, and that piece says so.</p></div></li>
 </ol>
 
 <h2>How the corporation chose the style</h2>
 <p>The first series, <em>Memory Storage of a Modern System</em>, ran from 16 August to 6 September 2026. Each poem paired a mystical image with a real idea from physics, and each picture was a dense engraving in the manner of old architectural etchings. It produced some striking pieces. The founder retired it, and the corporation was asked to choose a new direction.</p>
-<p>He handed the choice of what came next to the corporation. The CEO convened four departments: visual effects, marketing, product, and a psychology lens on how the work makes people feel. Their proposal went through four rounds of an adversarial critique panel before anything was built. The result is <em>First Light</em>, which began on 7 September.</p>
-<p>In First Light, each poem starts with a small maker&rsquo;s spark on a workbench, such as a match, a solder joint or a kettle. It follows the same force up to something vast doing the same thing, and most days it comes back to the bench. The pictures are flat two-colour screen-prints. Six colour families rotate so that two days in a row never share a palette, and the accent colour marks only the things doing the poem&rsquo;s verb.</p>
+<p>Four departments took part: visual effects, marketing, product, and a psychology lens on how the work makes people feel. A critique panel challenged the idea over three rounds, and then three of the departments reviewed real output. The result is <em>First Light</em>, which began on 7 September.</p>
+<p>In First Light, each poem starts with a small maker&rsquo;s spark on a workbench, such as a match, a solder joint or a kettle. It follows the same force up to something vast doing the same thing, and most days it comes back to the bench. The pictures are flat screen-print posters built around two colours, a field and an accent. Each one starts as a local FLUX.1 [schnell] render. Since 30 September, code cuts every render down to at most eight flat colours. Six colour families rotate so that two days in a row never share a palette, and the accent colour marks only the things doing the poem&rsquo;s verb.</p>
 
 <h2>What we are watching for</h2>
 <ul class="watch">
-<li><strong>Does a small model get better at a style?</strong> The judge&rsquo;s scores are published for every piece, and the <a href="evolution.html">Evolution</a> page charts them.</li>
+<li><strong>Does a small model get better at a style?</strong> The judge&rsquo;s scores are published for every piece it scored, and the <a href="evolution.html">Evolution</a> page charts them.</li>
 <li><strong>What changes when a model changes?</strong> Every swap of a writer, renderer or judge is dated, so you can compare work across the boundary.</li>
-<li><strong>Can the judge be trusted?</strong> Each founder&rsquo;s pick where he disagreed with the judge becomes a written rule. The judge is recalibrated against it.</li>
+<li><strong>Can the judge be trusted?</strong> When the founder disagrees with the judge, his reason is written down. Several of those notes have changed the judge&rsquo;s rubric or the prompt rules.</li>
 </ul>
 
 <h2>The rules we hold ourselves to</h2>
 <ul class="rules">
-<li>The poem and the image are made by local open-weight models. Claude judges and orchestrates. It never writes the poem or the picture brief.</li>
+<li>The poem and the image are made by local open-weight models. Claude judges the images and runs the daily schedule. It never writes the poem. Its only words in an image brief are notes on what to fix when a candidate is redrawn. There is one exception: the 10 October picture was redrawn on 13 October with a glass kettle, at the founder&rsquo;s request, from a prompt Claude wrote.</li>
 <li>Scores are shown as the judge gave them. A piece that did not clear the bar says so.</li>
 <li>Published images are re-encoded from pixels, so no generation metadata travels with them.</li>
 </ul>
@@ -629,7 +635,7 @@ if ($chrono.Count -gt 0) { [void]$svg.Append("<text class=`"ax`" x=`"$L`" y=`"$(
 [void]$svg.Append("</svg>")
 
 $eraHtml = [System.Text.StringBuilder]::new()
-foreach ($role in 'poem_writer', 'prompt_writer', 'renderer', 'judge_model') {
+foreach ($role in 'poem_writer', 'poem_critic', 'prompt_writer', 'renderer', 'judge_model') {
     $r = $Script:TL['roles'][$role]
     [void]$eraHtml.Append("<section class=`"era`"><h3>$(Esc $r['label'])</h3><ol>")
     foreach ($e in $r['eras']) {
@@ -642,12 +648,12 @@ foreach ($role in 'poem_writer', 'prompt_writer', 'renderer', 'judge_model') {
 
 $sb = [System.Text.StringBuilder]::new()
 [void]$sb.Append((Page-Head "Evolution - $Script:SiteTitle" '' 'evolution' 'How the models, the style and the scores of the C01 poetry and illustration experiment have changed over time.'))
-[void]$sb.Append("<main id=`"main`" class=`"prose wide`">`n<p class=`"eyebrow`">Evolution</p>`n<h1>Watch the experiment change</h1>`n<p class=`"lede`">Every model swap, style change and judge upgrade is dated here. Click any point to open that piece.</p>`n<figure class=`"chart-wrap`">$($svg.ToString())<figcaption>Judge&rsquo;s score, 0 to 10, for every published image. Open circles are founder&rsquo;s picks that were not scored.</figcaption></figure>`n<h2>Who held each role, and when</h2>`n<div class=`"eras`">`n$($eraHtml.ToString())</div>`n<h2>Milestones</h2>`n<ol class=`"milestones`">`n<li><time>2026-08-16</time>The seed poem, <em>An Infinity</em>, sets the first series&rsquo; formula.</li>`n<li><time>2026-08-17</time>Claude joins as the blind art judge.</li>`n<li><time>2026-08-20</time>An installer update removes the first local model. The pipeline moves to Qwen3.5 9B for poems and Qwen3 8B for image briefs.</li>`n<li><time>2026-09-03</time>By this date the judge has moved to Claude Fable 5.1.</li>`n<li><time>2026-09-06</time>The founder retires the etching series, and the corporation is asked to choose what comes next.</li>`n<li><time>2026-09-07</time><em>First Light</em> begins. The renderer changes from Stable Diffusion XL to FLUX.1 [schnell].</li>`n<li><time>2026-09-25</time>The judge moves to Claude Opus 5.5.</li>`n<li><time>2026-09-26</time>Each new work starts recording its own models at the moment it is accepted.</li>`n</ol>`n</main>`n")
+[void]$sb.Append("<main id=`"main`" class=`"prose wide`">`n<p class=`"eyebrow`">Evolution</p>`n<h1>Watch the experiment change</h1>`n<p class=`"lede`">Model and style changes are dated here. Click or tap any point on the chart to open that piece.</p>`n<figure class=`"chart-wrap`">$($svg.ToString())<figcaption>Judge&rsquo;s score, 0 to 10, for every published image. Open circles are founder&rsquo;s picks that were not scored.</figcaption></figure>`n<h2>Who held each role, and when</h2>`n<div class=`"eras`">`n$($eraHtml.ToString())</div>`n<h2>Milestones</h2>`n<ol class=`"milestones`">`n<li><time>2026-08-16</time>The seed poem, <em>An Infinity</em>, sets the first series&rsquo; formula.</li>`n<li><time>2026-08-17</time>Claude joins as the blind art judge.</li>`n<li><time>2026-08-20</time>An installer update removes the first local model. The pipeline moves to Qwen3.5 9B for poems and Qwen3 8B for image briefs.</li>`n<li><time>2026-09-03</time>By this date the judge has moved to Claude Fable 5.1.</li>`n<li><time>2026-09-06</time>The founder retires the etching series, and the corporation is asked to choose what comes next.</li>`n<li><time>2026-09-07</time><em>First Light</em> begins. The renderer changes from Stable Diffusion XL to FLUX.1 [schnell].</li>`n<li><time>2026-09-25</time>The judge moves to Claude Opus 5.5.</li>`n<li><time>2026-09-26</time>Each new work starts recording its own models at the moment it is accepted.</li>`n<li><time>2026-09-29</time>The founder turns down the photographic look. From the next day&rsquo;s picture on, code flattens every candidate into a screen-print of at most eight colours before it is judged.</li>`n<li><time>2026-10-10</time>The image brief must now name the theme&rsquo;s key objects, or nothing is drawn that day.</li>`n<li><time>2026-10-12</time>A new poem process begins. Qwen3 8B writes separate drafts and its own short title, and Qwen3.5 9B scores each draft three times.</li>`n</ol>`n</main>`n")
 [void]$sb.Append((Page-Foot))
 Write-Text (Join-Path $Out 'evolution.html') $sb.ToString()
 
 # Comparisons: an index page plus one page per round. Open rounds are blind; closed rounds reveal.
-$Script:Framing = 'One brief, two renderers. Informal, one sample each.'
+$Script:Framing = 'One brief, two renderers. An informal test, with one image from each.'
 $sb = [System.Text.StringBuilder]::new()
 [void]$sb.Append((Page-Head "Compare - $Script:SiteTitle" '' 'compare' 'One brief, two renderers: unlabelled side-by-side illustrations of the same poem.'))
 [void]$sb.Append("<main id=`"main`" class=`"prose`">`n<p class=`"eyebrow`">Compare</p>`n<h1>Which picture fits the poem?</h1>`n<p class=`"lede`">$Script:Framing Each round shows the same brief drawn twice, unlabelled. Which renderer made which image is revealed after the round closes.</p>`n")
@@ -708,7 +714,7 @@ foreach ($rid in $roundKeys) {
             if (-not $r.open) {
                 if ($isLocal) {
                     $rm = if ($w.credits.Contains('render') -and $w.credits['render'].model) { $w.credits['render'].model } else { 'a local diffusion model' }
-                    [void]$sb.Append("<span class=`"by`">Rendered locally by $(Esc $rm) on one home GPU. Dedicated to the public domain (CC0 1.0), like the rest of this site.</span>")
+                    [void]$sb.Append("<span class=`"by`">Rendered locally by $(Esc $rm) on one home GPU.$(if ([string]::CompareOrdinal($w.accepted_at, '2026-09-29 08:41') -ge 0) { ' Code then flattened it into a screen-print.' }) Dedicated to the public domain (CC0 1.0), like the rest of this site.</span>")
                 } else {
                     [void]$sb.Append("<span class=`"by`">Generated by $(Esc $pr.model), $(Esc $pr.generated_on), via ChatGPT; not covered by this site's CC0 dedication. <a href=`"../cmp/orig/$($pr.hash)-original$($pr.ext)`">Original file, with its content credentials</a>.</span>")
                 }

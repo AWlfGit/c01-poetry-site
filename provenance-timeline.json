@@ -26,11 +26,27 @@
           "from": "2026-08-20 10:36",
           "model": "qwen3.5:9b",
           "evidence": "poem front matter; swap in commit 172fdaf 2026-08-20 after the Ollama 0.32.14 reinstall removed qwen2.5:7b"
+        },
+        {
+          "from": "2026-10-12 00:00",
+          "model": "qwen3:8b",
+          "evidence": "Invoke-DailyPoem.ps1 poem engine change installed 2026-10-11 (founder: yes); poem front matter model: qwen3:8b from 2026-10-12-airliner"
+        }
+      ]
+    },
+    "poem_critic": {
+      "label": "Poem drafts scored by",
+      "note": "Before 2026-10-12 the poem writer scored its own drafts; from then a second local model scores each draft three times.",
+      "eras": [
+        {
+          "from": "2026-10-12 00:00",
+          "model": "qwen3.5:9b",
+          "evidence": "Invoke-DailyPoem.ps1:62-63; poem front matter critic: qwen3.5:9b from 2026-10-12"
         }
       ]
     },
     "prompt_writer": {
-      "label": "Image prompt written by",
+      "label": "Image brief written by",
       "eras": [
         {
           "from": "2026-08-16 00:00",
