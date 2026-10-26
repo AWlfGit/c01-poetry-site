@@ -4,54 +4,55 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<meta name="generator" content="build-poetry-site/0.2.0">
-<meta name="description" content="How an AI corporation runs a daily poem and illustration experiment on local models, with Claude as the judge.">
+<meta name="generator" content="build-poetry-site/0.4.0">
+<meta name="description" content="How an AI corporation runs a poem and illustration experiment on local models most days, with Claude judging the images.">
 <title>The experiment - C01 Poetry &amp; Illustration</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
-<header class="bar"><a class="mark" href="index.html"><span class="glyph" aria-hidden="true">&#10022;</span> C01 <em>Poetry &amp; Illustration</em></a><nav aria-label="Site"><a href="index.html">Gallery</a><a href="experiment.html" aria-current="page">The experiment</a><a href="evolution.html">Evolution</a><a href="https://c0rw1n.com/">c0rw1n.com &#8599;</a></nav></header><main id="main" class="prose">
+<header class="bar"><a class="mark" href="index.html"><span class="glyph" aria-hidden="true">&#10022;</span> C01 <em>Poetry &amp; Illustration</em></a><nav aria-label="Site"><a href="index.html">Gallery</a><a href="experiment.html" aria-current="page">The experiment</a><a href="evolution.html">Evolution</a><a href="comparisons.html">Compare</a><a href="https://c0rw1n.com/">c0rw1n.com &#8599;</a></nav></header><main id="main" class="prose">
 <p class="eyebrow">The experiment</p>
 <h1>Can small machines make something worth keeping, day after day?</h1>
 <p class="lede">c01corp is a company run as a corporation of AI agents: departments with vice-presidents and staff, all of them Claude, working for one human founder. This gallery is one of its standing experiments. It asks what three small open-weight models can make on a single home graphics card, and what it takes to hold them to a standard.</p>
 
 <h2>Today&rsquo;s lineup</h2>
 <ul class="lineup">
-<li><span class="role">Writes the poem</span><strong>Qwen3.5 9B</strong></li>
+<li><span class="role">Writes the poem</span><strong>Qwen3 8B</strong></li>
+<li><span class="role">Scores the poem drafts</span><strong>Qwen3.5 9B</strong></li>
 <li><span class="role">Writes the image brief</span><strong>Qwen3 8B</strong></li>
 <li><span class="role">Draws the image</span><strong>FLUX.1 [schnell]</strong></li>
 <li><span class="role">Judges the image</span><strong>Claude Opus 5.5</strong></li>
 </ul>
-<p class="note">Model names are trademarks of their owners, and this experiment is not affiliated with or endorsed by them. Every published piece lists the exact models that made it. A credit marked <span class="src rec">recorded</span> was written into the work&rsquo;s own record at the time. One marked <span class="src rcn">from pipeline history</span> predates that record and comes from the dated history on the <a href="evolution.html">Evolution</a> page.</p>
+<p class="note">Model names are trademarks of their owners, and this experiment is not affiliated with or endorsed by them. Every published piece lists the models that wrote its poem and image brief, drew the image and judged it. A credit marked <span class="src rec">recorded</span> was written into the work&rsquo;s own record at the time. One marked <span class="src rcn">from pipeline history</span> belongs to a work finished before 26 September 2026, when records began to list their models. It comes from the dated history on the <a href="evolution.html">Evolution</a> page.</p>
 
 <h2>One day in the studio</h2>
 <ol class="flow">
-<li><span class="step">06:00</span><div><h3>A local model writes the poem</h3><p>The poem model gets the day&rsquo;s theme and writes a draft. A second pass of the same model then critiques the draft and scores it. The poem is rewritten up to five times, and the best-scoring draft is kept. No cloud model touches the words.</p></div></li>
-<li><span class="step">08:00</span><div><h3>A local model writes the picture brief</h3><p>A second local model reads the poem and writes the image prompt. Claude is not allowed to write or rescue that prompt. If the brief is weak, the weak brief is the result.</p></div></li>
-<li><span class="step">08:05</span><div><h3>The GPU draws candidates</h3><p>A local diffusion model renders several candidates on the same home graphics card. Each has no API cost and never leaves the machine.</p></div></li>
-<li><span class="step">08:20</span><div><h3>Claude judges each one blind</h3><p>The corporation&rsquo;s art-critic agent scores every candidate on craft and on fit to the series style, from zero to ten. It checks each image at full resolution for defects. It cannot see the other candidates or earlier verdicts. An image that misses the poem&rsquo;s subject can never be chosen.</p></div></li>
-<li><span class="step">08:30</span><div><h3>The best candidate is kept, with its real score</h3><p>A candidate that clears the bar is published as a pass. If none does, the best on-subject candidate is published and marked as best-of-N, with its real score. Some days the founder picks a different candidate, and that piece says so.</p></div></li>
+<li><span class="step">06:00</span><div><h3>Two local models write and score the poem</h3><p>The poem model gets the day&rsquo;s theme and writes up to four separate drafts. If none scores at least 6, it may write up to two more, but only within five minutes of the start. So far that window has always closed first. No draft sees another. A draft that breaks a fixed rule, such as running past 18 lines, gets a score of 0 without being judged. A second local model scores each of the other drafts three times, and the draft with the best median score is kept, with a short title the poet writes. If every draft breaks a rule, one is still published with a score of 0. No cloud model writes or scores the words.</p></div></li>
+<li><span class="step">08:00</span><div><h3>A local model writes the picture brief</h3><p>The same model that wrote the poem reads it and describes what the picture should show. Code adds the theme and a fixed paragraph on style, colour and composition to make the full brief. Claude is not allowed to write or rescue the brief. If the brief is weak, the weak brief is used. When a candidate is redrawn, the judge&rsquo;s note on what to fix is added to the end.</p></div></li>
+<li><span class="step">08:05</span><div><h3>The graphics card draws candidates</h3><p>A local image model, FLUX.1 [schnell], draws one candidate at a time on the same home graphics card, up to four for the day&rsquo;s poem. Code then crops each render and flattens it into a screen-print of at most eight colours. That flat version is what gets judged and published. Drawing costs nothing per image, but each candidate is sent to Claude to be judged.</p></div></li>
+<li><span class="step">08:06</span><div><h3>Claude judges each one blind</h3><p>Drawing and judging take turns, so each candidate is judged before the next is drawn. The corporation&rsquo;s art-critic agent scores it from zero to ten, once for craft and once for fit to the series style, and the lower score counts. It checks the image at full resolution for defects. It is told the theme, but it does not see the poem, the other candidates or earlier scores. It also marks any image that misses the poem&rsquo;s subject.</p></div></li>
+<li><span class="step">08:15</span><div><h3>The best candidate is kept, with its real score</h3><p>A candidate clears the bar if it scores at least 6 for both craft and style, matches the subject and has no serious defect. It is published as a pass. If none clears the bar, the highest-scoring candidate that matches the subject is published anyway, and its page says it did not clear the bar. If every candidate misses the subject, nothing is published that day. Some days the founder picks a different candidate, even one the judge marked off subject, and that piece says so.</p></div></li>
 </ol>
 
 <h2>How the corporation chose the style</h2>
 <p>The first series, <em>Memory Storage of a Modern System</em>, ran from 16 August to 6 September 2026. Each poem paired a mystical image with a real idea from physics, and each picture was a dense engraving in the manner of old architectural etchings. It produced some striking pieces. The founder retired it, and the corporation was asked to choose a new direction.</p>
-<p>He handed the choice of what came next to the corporation. The CEO convened four departments: visual effects, marketing, product, and a psychology lens on how the work makes people feel. Their proposal went through four rounds of an adversarial critique panel before anything was built. The result is <em>First Light</em>, which began on 7 September.</p>
-<p>In First Light, each poem starts with a small maker&rsquo;s spark on a workbench, such as a match, a solder joint or a kettle. It follows the same force up to something vast doing the same thing, and most days it comes back to the bench. The pictures are flat two-colour screen-prints. Six colour families rotate so that two days in a row never share a palette, and the accent colour marks only the things doing the poem&rsquo;s verb.</p>
+<p>Four departments took part: visual effects, marketing, product, and a psychology lens on how the work makes people feel. A critique panel challenged the idea over three rounds, and then three of the departments reviewed real output. The result is <em>First Light</em>, which began on 7 September.</p>
+<p>In First Light, each poem starts with a small maker&rsquo;s spark on a workbench, such as a match, a solder joint or a kettle. It follows the same force up to something vast doing the same thing, and most days it comes back to the bench. The pictures are flat screen-print posters built around two colours, a field and an accent. Each one starts as a local FLUX.1 [schnell] render. Since 30 September, code cuts every render down to at most eight flat colours. Six colour families rotate so that two days in a row never share a palette, and the accent colour marks only the things doing the poem&rsquo;s verb.</p>
 
 <h2>What we are watching for</h2>
 <ul class="watch">
-<li><strong>Does a small model get better at a style?</strong> The judge&rsquo;s scores are published for every piece, and the <a href="evolution.html">Evolution</a> page charts them.</li>
+<li><strong>Does a small model get better at a style?</strong> The judge&rsquo;s scores are published for every piece it scored, and the <a href="evolution.html">Evolution</a> page charts them.</li>
 <li><strong>What changes when a model changes?</strong> Every swap of a writer, renderer or judge is dated, so you can compare work across the boundary.</li>
-<li><strong>Can the judge be trusted?</strong> Each founder&rsquo;s pick where he disagreed with the judge becomes a written rule. The judge is recalibrated against it.</li>
+<li><strong>Can the judge be trusted?</strong> When the founder disagrees with the judge, his reason is written down. Several of those notes have changed the judge&rsquo;s rubric or the prompt rules.</li>
 </ul>
 
 <h2>The rules we hold ourselves to</h2>
 <ul class="rules">
-<li>The poem and the image are made by local open-weight models. Claude judges and orchestrates. It never writes the poem or the picture brief.</li>
+<li>The poem and the image are made by local open-weight models. Claude judges the images and runs the daily schedule. It never writes the poem. Its only words in an image brief are notes on what to fix when a candidate is redrawn. There is one exception: the 10 October picture was redrawn on 13 October with a glass kettle, at the founder&rsquo;s request, from a prompt Claude wrote.</li>
 <li>Scores are shown as the judge gave them. A piece that did not clear the bar says so.</li>
 <li>Published images are re-encoded from pixels, so no generation metadata travels with them.</li>
 </ul>
-</main><footer><p>An experiment by <a href="https://c0rw1n.com/">c0rw1n innovative inc</a> (c01corp). <a href="https://c0rw1n.com/">Visit c0rw1n.com</a>.</p><p>Code MIT. Poems and images dedicated to the public domain (CC0 1.0). Made by local open-weight models; Claude judges the images. Not affiliated with or endorsed by Anthropic, Alibaba Cloud, Stability AI or Black Forest Labs. Build 0.2.0.</p></footer>
+</main><footer><p>An experiment by <a href="https://c0rw1n.com/">c0rw1n innovative inc</a> (c01corp). <a href="https://c0rw1n.com/">Visit c0rw1n.com</a>.</p><p>Code MIT. Poems and images dedicated to the public domain (CC0 1.0). Made by local open-weight models; Claude judges the images. Not affiliated with or endorsed by Anthropic, Alibaba Cloud, Stability AI or Black Forest Labs. Build 0.4.0.</p></footer>
 </body>
 </html>

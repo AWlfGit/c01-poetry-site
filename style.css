@@ -109,6 +109,20 @@ div.prompt h3{color:var(--fg);font-size:.8rem;letter-spacing:.08em;text-transfor
 .milestones li::before{content:"";position:absolute;left:-.4rem;top:.45rem;width:.7rem;height:.7rem;border-radius:50%;background:var(--gold)}
 .milestones time{display:block;font:600 .8rem var(--sans);color:var(--gold)}
 .empty{padding:3rem 1rem;text-align:center;color:var(--mute)}
+.rounds{list-style:none;padding:0;margin:1.5rem 0;display:grid;gap:.75rem;font-family:var(--sans)}
+.rounds li{display:grid;gap:.2rem;padding:1rem;border:1px solid var(--line);border-radius:.7rem;background:var(--panel)}
+.rounds span{font-size:.85rem;color:var(--mute)}
+.cmp .status,.cmp .vote{font-family:var(--sans)}
+.cmp .vote{font-size:1.05rem}
+.pair{margin:2.5rem 0;padding-top:1rem;border-top:1px solid var(--line)}
+.duo{list-style:none;display:grid;gap:clamp(1rem,2vw,1.75rem);grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr));margin-bottom:1.5rem}
+.duo .frame{border-radius:.6rem}
+.duo figcaption .t{font-family:var(--sans);font-weight:600}
+.tally{font-family:var(--sans);margin:0 0 1.5rem;padding:.75rem .9rem;border:1px solid var(--line);border-radius:.6rem;background:var(--panel)}
+.tally dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;margin:0}
+.tally dt{font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)}
+.tally dd{margin:.15rem 0 0;font:600 1.6rem/1.2 var(--serif);color:var(--gold);font-variant-numeric:tabular-nums;min-height:1.2em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tally-status{margin:.5rem 0 0;font-size:.85rem;line-height:1.45;color:var(--mute);min-height:2.9em}
 .roast pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem}
 .piece h1{font-size:clamp(1.6rem,1rem + 2vw,2.5rem)}
 h1,h2,h3,figcaption .t{text-wrap:balance}
